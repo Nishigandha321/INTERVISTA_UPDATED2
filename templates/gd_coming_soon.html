@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/static/styles.css">
+<title>Group Discussion — Coming Soon</title>
+<style>
+  .coming-soon-icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+  }
+  .flow-complete {
+    margin-top: 24px;
+    padding: 16px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 12px;
+    color: #166534;
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-container">
+    <h2 class="logo">
+      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
+      INTERVISTA
+    </h2>
+    <div class="nav-links">
+      <a href="/index">Home</a>
+      <a href="/profile">Dashboard</a>
+    </div>
+    <div class="user-menu">
+      <button class="user-avatar" id="userAvatar">
+        <span class="avatar-circle">{{ username[:1] | upper }}</span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-header">
+  <h1>Placement Simulation</h1>
+</header>
+
+<main>
+  <section class="card" style="text-align: center; max-width: 640px; margin: 0 auto;">
+    <div class="coming-soon-icon">🎯</div>
+    <h2>{% if current_round == 'hr' %}HR Interview{% else %}Group Discussion{% endif %} Module Coming Soon</h2>
+    <p style="color: var(--text-muted); line-height: 1.6; margin: 16px 0 24px;">
+      {% if interview_mode == "placement_simulation" %}
+      You have completed the Online Assessment and Technical Interview rounds.
+      The {% if current_round == 'hr' %}HR Interview{% else %}Group Discussion{% endif %} module is under development and will be available in a future update.
+      {% else %}
+      The {% if current_round == 'hr' %}HR Interview{% else %}Group Discussion{% endif %} round is not available yet. Please check back in a future update.
+      {% endif %}
+    </p>
+
+    {% if interview_mode == "placement_simulation" %}
+    <div class="flow-complete">
+      <strong>Simulation complete for now.</strong><br>
+      Online Assessment → Technical Interview → Group Discussion (coming soon)
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 32px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+      {% if interview_mode == "placement_simulation" %}
+      <a href="/report" class="btn">View Technical Interview Report</a>
+      {% endif %}
+      <a href="/index" class="btn{% if interview_mode != 'placement_simulation' %}{% else %} outline{% endif %}">Back to Home</a>
+      <a href="/profile" class="btn outline">Dashboard</a>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>

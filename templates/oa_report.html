@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/static/styles.css">
+<title>Online Assessment Report</title>
+<style>
+  .score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .score-card {
+    text-align: center;
+    padding: 20px 16px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid var(--border, #e2e8f0);
+  }
+  .score-card .value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #667eea;
+  }
+  .score-card .label {
+    font-size: 0.85rem;
+    color: var(--text-muted, #64748b);
+    margin-top: 4px;
+  }
+  .incorrect-item {
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+    background: #fff;
+  }
+  .incorrect-item h4 { margin: 0 0 12px; line-height: 1.4; }
+  .answer-row { margin: 8px 0; font-size: 0.95rem; }
+  .answer-wrong { color: #dc2626; }
+  .answer-correct { color: #16a34a; }
+  .explanation {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-container">
+    <h2 class="logo">
+      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
+      INTERVISTA
+    </h2>
+    <div class="nav-links">
+      <a href="/index">Home</a>
+      <a href="/profile">Dashboard</a>
+    </div>
+    <div class="user-menu">
+      <button class="user-avatar" id="userAvatar">
+        <span class="avatar-circle">{{ username[:1] | upper }}</span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-header">
+  <h1>Online Assessment Report</h1>
+  <p style="color: var(--text-muted);">{{ role }} — {{ level }}</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Your Results</h2>
+
+    <div class="score-grid">
+      <div class="score-card">
+        <div class="value">{{ report.percentage }}%</div>
+        <div class="label">Percentage</div>
+      </div>
+      <div class="score-card">
+        <div class="value">{{ report.correct_answers }}</div>
+        <div class="label">Correct Answers</div>
+      </div>
+      <div class="score-card">
+        <div class="value">{{ report.incorrect_answers }}</div>
+        <div class="label">Incorrect Answers</div>
+      </div>
+      <div class="score-card">
+        <div class="value">{{ report.correct_answers }} / {{ report.total_questions }}</div>
+        <div class="label">Total Score</div>
+      </div>
+    </div>
+
+    {% if report.incorrect_details and report.incorrect_details|length > 0 %}
+    <h3 style="margin-top: 32px;">Review Incorrect Answers</h3>
+    {% for item in report.incorrect_details %}
+    <div class="incorrect-item">
+      <h4>{{ item.question }}</h4>
+      <div class="answer-row answer-wrong">
+        <strong>Your Answer:</strong> Option {{ item.your_answer }}
+        {% if item.your_answer_text %} — {{ item.your_answer_text }}{% endif %}
+      </div>
+      <div class="answer-row answer-correct">
+        <strong>Correct Answer:</strong> Option {{ item.correct_answer }}
+        {% if item.correct_answer_text %} — {{ item.correct_answer_text }}{% endif %}
+      </div>
+      <div class="explanation">
+        <strong>Explanation:</strong> {{ item.explanation }}
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="color: #16a34a; font-weight: 600; margin-top: 24px;">Perfect score! All answers were correct.</p>
+    {% endif %}
+
+    <div style="margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap;">
+      <a href="/index" class="btn">Back to Home</a>
+      <a href="/profile" class="btn outline">View Dashboard</a>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>

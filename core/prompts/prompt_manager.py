@@ -57,6 +57,7 @@ class PromptManager:
         
         # INTERVIEW PROMPTS
         self._register_agentic_interviewer()
+        self._register_oa_generate()
         
         # EVALUATION PROMPTS
         self._register_evaluation_content()
@@ -112,16 +113,24 @@ WHEN Job Description is empty or "N/A":
 - Prioritize weak areas, course topics, and role-specific applied scenarios.
 - Categories: behavioral|situational|technical|logical|project-specific
 
+TECHNICAL INTERVIEW ROUND (8-10 questions total):
+- Mix question types across the full interview — resume, projects, skills, JD, company-specific, coding (discussion format), and technical concepts.
+- Avoid repeating categories; vary depth and difficulty.
+- For coding questions: ask in discussion format (e.g. "Explain how you would solve Two Sum", "Write pseudocode for Binary Search", "Explain BFS vs DFS"). Do NOT require runnable code or test cases.
+- Coding category: use category "coding" for algorithm/DS questions answered via explanation, pseudocode, or code snippets.
+
 Rules:
 - NEVER repeat previous questions
 - ALWAYS generate a unique, fresh question
 - If repeating category, increase difficulty or depth
 - Use course topics and completed modules to make questions relevant and practical
 
+Additional instructions: {instruction_override}
+
 Return ONLY JSON:
 {{
  "question": "...",
- "category": "resume-based|jd-based|missing-skill|behavioral-company-fit|behavioral|situational|technical|logical|project-specific"
+ "category": "resume-based|jd-based|missing-skill|behavioral-company-fit|behavioral|situational|technical|logical|project-specific|coding|company-specific|skill-based|project-based"
 }}
 """
         
@@ -129,7 +138,56 @@ Return ONLY JSON:
             "interviewer_system_prompt",
             template,
             PromptCategory.INTERVIEW,
-            "3.0"
+            "3.1"
+        )
+
+    def _register_oa_generate(self):
+        """Generate placement screening MCQs for Online Assessment round."""
+        template = """You are an expert placement test designer creating a generic Online Assessment (OA) screening round.
+
+This assessment should NOT depend heavily on a specific resume, company, or job description.
+Focus on general aptitude and CS fundamentals suitable for campus/placement screening.
+
+Generate EXACTLY 10 multiple-choice questions with this distribution:
+- 2 Aptitude (quantitative/logical reasoning)
+- 1 OOPS (object-oriented programming concepts)
+- 1 C++ (C++ language fundamentals)
+- 1 SQL (SQL queries and concepts)
+- 2 DBMS (database management systems)
+- 1 Operating Systems
+- 1 Computer Networks
+- 1 DSA (data structures & algorithms)
+
+Each question MUST have exactly four options (A, B, C, D) and one correct answer.
+
+Return ONLY valid JSON:
+{{
+  "questions": [
+    {{
+      "question": "Question text here?",
+      "option_a": "First option",
+      "option_b": "Second option",
+      "option_c": "Third option",
+      "option_d": "Fourth option",
+      "correct_answer": "A",
+      "explanation": "Brief explanation of why this answer is correct.",
+      "topic": "Aptitude"
+    }}
+  ]
+}}
+
+Rules:
+- correct_answer must be exactly one of: A, B, C, or D
+- topic must be one of: Aptitude, OOPS, C++, SQL, DBMS, Operating Systems, Computer Networks, DSA
+- All 10 questions must be unique and non-trivial
+- Options must be plausible; only one correct answer per question
+- STRICT: Return JSON only. No markdown."""
+        
+        self._register(
+            "oa_generate_prompt",
+            template,
+            PromptCategory.INTERVIEW,
+            "1.0"
         )
     
     def _register_evaluation_content(self):

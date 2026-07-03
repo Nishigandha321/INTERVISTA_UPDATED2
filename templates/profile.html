@@ -175,7 +175,9 @@
         <summary>
           <span class="tl-date-badge">{{ iv.date_display }}</span>
           <div class="tl-summary-main">
-            <div class="tl-summary-title">Mock interview</div>
+            <div class="tl-summary-title">
+              {% if iv.report_url == '/oa/report' %}Mock Online Assessment{% else %}Mock interview{% endif %}
+            </div>
             <div class="tl-summary-sub">
               {% if iv.rl_action %}Path: {{ iv.rl_action }}{% if iv.rl_difficulty %} · {{ iv.rl_difficulty }}{% endif %}{% else %}Evaluated{% endif %}
             </div>

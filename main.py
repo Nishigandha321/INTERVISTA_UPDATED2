@@ -62,7 +62,7 @@ from core.llm.llm_service import LLMService
 from core.prompts.prompt_manager import PromptManager
 from services.rag.retriever import get_retriever
 from services.rag.rag_pipeline import get_or_create_rag_pipeline, initialize_rag
-from core.chains.base_chain import InterviewQuestionChain, EvaluationChain, SummaryChain
+from core.chains.base_chain import InterviewQuestionChain, EvaluationChain, SummaryChain, OnlineAssessmentChain
 from speech.transcription import (
     transcribe_audio,
     analyze_speech_delivery,
@@ -145,6 +145,11 @@ resource_pipeline = None
 question_chain = InterviewQuestionChain(llm_service, prompt_manager, retriever)
 evaluation_chain = EvaluationChain(llm_service, prompt_manager, retriever)
 summary_chain = SummaryChain(llm_service, prompt_manager, retriever)
+oa_chain = OnlineAssessmentChain(llm_service, prompt_manager, retriever)
+
+TECHNICAL_QUESTION_COUNT = 5
+OA_QUESTION_COUNT = 10
+HR_QUESTION_COUNT = 5
 
 def categorize_weak_topics(weak_topics: list[str]) -> dict[str, list[str]]:
 
@@ -243,11 +248,28 @@ def _interview_jd_payload(session: dict) -> dict:
 PLACEMENT_ROUND_ORDER = [
     "online_assessment",
     "technical",
-    "group_discussion",
     "hr",
 ]
 
-EXECUTABLE_ROUNDS = {"technical"}
+EXECUTABLE_ROUNDS = {"online_assessment", "technical", "hr"}
+
+ROUND_TEMPLATES = {
+    "online_assessment": "online_assessment.html",
+    "technical": "interview.html",
+    "group_discussion": "gd_coming_soon.html",
+    "hr": "interview.html",
+}
+
+OA_TOPIC_DISTRIBUTION = {
+    "Aptitude": 2,
+    "OOPS": 1,
+    "C++": 1,
+    "SQL": 1,
+    "DBMS": 2,
+    "Operating Systems": 1,
+    "Computer Networks": 1,
+    "DSA": 1,
+}
 
 
 def _normalize_interview_mode(mode: str | None) -> str:
@@ -274,12 +296,14 @@ def _init_interview_session_fields(
         round_id = _normalize_round(selected_round)
         return {
             "interview_mode": "individual_practice",
+            "interview_type": "technical",
             "current_round": round_id,
             "round_order": [round_id],
             "round_status": {round_id: "active"},
         }
     return {
         "interview_mode": "placement_simulation",
+        "interview_type": "technical",
         "current_round": "online_assessment",
         "round_order": list(PLACEMENT_ROUND_ORDER),
         "round_status": {
@@ -309,6 +333,13 @@ def _advance_round(session: dict) -> str | None:
     nxt = order[idx + 1]
     session["current_round"] = nxt
     status[nxt] = "active"
+
+    # Synchronize interview_type for automatic transitions
+    if nxt == "technical":
+        session["interview_type"] = "technical"
+    elif nxt == "hr":
+        session["interview_type"] = "hr"
+
     return nxt
 
 
@@ -335,6 +366,79 @@ def _ensure_round_fields(session: dict) -> None:
     session.update(_init_interview_session_fields("placement_simulation"))
 
 
+def _template_for_round(round_id: str | None) -> str:
+    return ROUND_TEMPLATES.get(round_id or "technical", "interview.html")
+
+
+def _normalize_oa_answer(value: str | None) -> str:
+    if not value:
+        return ""
+    letter = str(value).strip().upper()
+    if letter in ("A", "B", "C", "D"):
+        return letter
+    if letter.startswith("OPTION_"):
+        letter = letter.replace("OPTION_", "", 1)
+    return letter if letter in ("A", "B", "C", "D") else ""
+
+
+def _strip_oa_question_for_client(question: dict, index: int) -> dict:
+    return {
+        "index": index,
+        "question": question.get("question", ""),
+        "option_a": question.get("option_a", ""),
+        "option_b": question.get("option_b", ""),
+        "option_c": question.get("option_c", ""),
+        "option_d": question.get("option_d", ""),
+        "topic": question.get("topic", ""),
+    }
+
+
+def _validate_oa_questions(questions: list) -> list:
+    if not isinstance(questions, list) or len(questions) != OA_QUESTION_COUNT:
+        raise ValueError(f"Expected {OA_QUESTION_COUNT} questions")
+    normalized = []
+    for q in questions:
+        if not isinstance(q, dict):
+            raise ValueError("Invalid question format")
+        correct = _normalize_oa_answer(q.get("correct_answer"))
+        if not correct:
+            raise ValueError("Missing correct_answer")
+        for key in ("question", "option_a", "option_b", "option_c", "option_d", "explanation"):
+            if not str(q.get(key, "")).strip():
+                raise ValueError(f"Missing field: {key}")
+        normalized.append({
+            "question": str(q["question"]).strip(),
+            "option_a": str(q["option_a"]).strip(),
+            "option_b": str(q["option_b"]).strip(),
+            "option_c": str(q["option_c"]).strip(),
+            "option_d": str(q["option_d"]).strip(),
+            "correct_answer": correct,
+            "explanation": str(q["explanation"]).strip(),
+            "topic": str(q.get("topic", "General")).strip(),
+        })
+    return normalized
+
+
+def _render_round_page(request: Request, user, session: dict, **extra):
+    current_round = session.get("current_round", "technical")
+    round_executable = current_round in EXECUTABLE_ROUNDS
+    template_name = _template_for_round(current_round)
+    context = {
+        "request": request,
+        "username": user.username,
+        "user_id": user.id,
+        "role": session.get("role", "Software Engineer"),
+        "level": session.get("level", "Junior"),
+        "course_id": session.get("course_id"),
+        "interview_mode": session.get("interview_mode", "placement_simulation"),
+        "current_round": current_round,
+        "round_executable": round_executable,
+        "total_questions": TECHNICAL_QUESTION_COUNT,
+        **extra,
+    }
+    return templates.TemplateResponse(request, template_name, context)
+
+
 def _prepare_interview_session(
     session: dict,
     *,
@@ -344,13 +448,34 @@ def _prepare_interview_session(
     """Apply mode-specific entry routing so the session lands on the correct round."""
     mode = _normalize_interview_mode(interview_mode)
     session["interview_mode"] = mode
-    if mode == "placement_simulation":
-        _skip_to_executable_round(session)
-    else:
+    if mode == "individual_practice":
         round_id = _normalize_round(selected_round or session.get("current_round"))
         session["current_round"] = round_id
         session["round_order"] = [round_id]
         session["round_status"] = {round_id: "active"}
+        session.setdefault("interview_type", "technical")
+    elif mode == "placement_simulation":
+        if selected_round and selected_round != "technical":
+            # If a specific round is selected (and it's not the default 'technical'),
+            # treat it as a standalone 'individual_practice' session to prevent
+            # advancing to subsequent rounds (GD/HR) in the simulation sequence.
+            session["interview_mode"] = "individual_practice"
+            session["current_round"] = selected_round
+            session["round_order"] = [selected_round]
+            session["round_status"] = {selected_round: "active"}
+            session.setdefault("interview_type", "technical")
+        else:
+            session.setdefault("current_round", "online_assessment")
+            session.setdefault("round_order", list(PLACEMENT_ROUND_ORDER))
+            session.setdefault(
+                "round_status",
+                {
+                    "online_assessment": "active",
+                    "technical": "pending",
+                    "group_discussion": "pending",
+                    "hr": "pending",
+                },
+            )
 
 
 # ===========================================================================
@@ -643,6 +768,7 @@ async def evaluate_content(
     questions_answers: list,
     company_name: str = "",
     job_description: str = "",
+    interview_type: str = "technical",
 ) -> dict:
     answers = []
     weak_topics = []
@@ -654,16 +780,23 @@ async def evaluate_content(
         answer = normalize_transcript(qa.get("answer", ""))
         heuristics = score_answer_structure(answer, question)
 
-        result = await evaluation_chain.invoke(
-            {
-                "role": role,
-                "level": level,
-                "question": question,
-                "answer": answer,
-                "company_name": company_name or "N/A",
-                "job_description": job_description or "N/A",
-            }
-        )
+        eval_payload = {
+            "role": role,
+            "level": level,
+            "question": question,
+            "answer": answer,
+            "company_name": company_name or "N/A",
+            "job_description": job_description or "N/A",
+        }
+
+        if interview_type == "hr":
+            eval_payload["instruction_override"] = (
+                "Evaluate this HR interview response. Assess: Communication, Confidence, Clarity, "
+                "Professionalism, Behavioral quality, Leadership, Teamwork, Problem-solving approach, "
+                "and Cultural fit. Provide a score and specific strengths/weaknesses related to these soft skills."
+            )
+
+        result = await evaluation_chain.invoke(eval_payload)
 
         parsed = {}
         try:
@@ -1306,47 +1439,82 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
 def _build_interview_context(
     request: Request,
     user,
-    role: str,
-    level: str,
-    course_id: int | None,
-    db: Session,
+    role: str | None = None,
+    level: str | None = None,
+    course_id: int | None = None,
+    db: Session = None,
     company_name: str = "",
     job_description: str = "",
     interview_mode: str = "placement_simulation",
     selected_round: str | None = None,
 ):
+    effective_role = (role or "").strip()
+    effective_level = (level or "").strip()
     completed_modules = []
     course_topics = []
 
-    if course_id is not None:
+    if course_id is not None and db is not None:
         course = db.query(Course).filter(Course.id == course_id).first()
         if course and course.user_id == user.id:
+            effective_role = (course.role or effective_role or "").strip()
+            effective_level = (course.level or effective_level or "").strip()
             modules = (
                 db.query(Module)
                 .filter(Module.course_id == course_id)
                 .order_by(Module.order_index.asc())
                 .all()
             )
-            completed_modules = [m.title for m in modules if m.is_completed]
-            course_topics = [m.title for m in modules if m.title]
+            completed_modules = [m.title for m in modules if m.is_completed and m.title]
+            course_topics = [m.title for m in modules if m.title][:8]
 
-    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first() if db is not None else None
+    if not effective_role and profile and profile.role_applied_for:
+        effective_role = profile.role_applied_for
+    if not effective_level and profile and profile.current_designation:
+        effective_level = profile.current_designation
+
+    if not effective_role:
+        effective_role = "Software Engineer"
+    if not effective_level:
+        effective_level = "Junior"
+
+    resume_text = (resume_store.get(user.username) or "").strip()
+    if not resume_text and profile and profile.resume_file_path:
+        resume_path = Path(profile.resume_file_path)
+        if resume_path.exists():
+            try:
+                suffix = resume_path.suffix.lower()
+                if suffix == ".pdf":
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(resume_path))
+                    resume_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+                elif suffix == ".docx":
+                    from docx import Document
+                    doc = Document(str(resume_path))
+                    resume_text = "\n".join(p.text for p in doc.paragraphs).strip()
+                else:
+                    resume_text = resume_path.read_text(encoding="utf-8", errors="ignore").strip()
+            except Exception:
+                resume_text = ""
+    if resume_text:
+        resume_store[user.username] = resume_text
+
     effective_company = (company_name or (profile.company_name if profile else "") or "").strip()
     effective_jd = (job_description or (profile.job_description if profile else "") or "").strip()
 
-    if company_name or job_description:
+    if (company_name or job_description) and db is not None:
         _save_interview_profile_fields(
             db,
             user,
-            role=role,
-            level=level,
+            role=effective_role,
+            level=effective_level,
             company_name=effective_company,
             job_description=effective_jd,
         )
 
     interview_sessions[user.username] = {
-        "role": role,
-        "level": level,
+        "role": effective_role,
+        "level": effective_level,
         "course_id": course_id,
         "company_name": effective_company,
         "job_description": effective_jd,
@@ -1364,6 +1532,9 @@ def _build_interview_context(
         selected_round=selected_round,
     )
 
+    if selected_round == "hr":
+        session["interview_type"] = "hr"
+
     current_round = session.get("current_round", "technical")
     round_executable = current_round in EXECUTABLE_ROUNDS
 
@@ -1374,17 +1545,11 @@ def _build_interview_context(
         round_executable,
     )
 
-    return templates.TemplateResponse(request, "interview.html", {
-            "request": request,
-            "username": user.username,
-            "user_id": user.id,
-            "role": role,
-            "level": level,
-            "course_id": course_id,
-            "interview_mode": session.get("interview_mode"),
-            "current_round": current_round,
-            "round_executable": round_executable,
-        },
+    return _render_round_page(
+        request,
+        user,
+        session,
+        course_id=course_id,
     )
 
 @app.post("/start_interview/", response_class=HTMLResponse)
@@ -1429,105 +1594,201 @@ def start_interview_get(
     user = get_current_user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="Not logged in")
-    effective_role = (role or "").strip()
-    effective_level = (level or "").strip()
-    completed_modules: list[str] = []
-    course_topics: list[str] = []
 
-    if course_id is not None:
-        course = db.query(Course).filter(Course.id == course_id).first()
-        if course and course.user_id == user.id:
-            effective_role = (course.role or effective_role or "").strip()
-            effective_level = (course.level or effective_level or "").strip()
-            modules = (
-                db.query(Module)
-                .filter(Module.course_id == course_id)
-                .order_by(Module.order_index.asc())
-                .all()
-            )
-            completed_modules = [m.title for m in modules if m.is_completed and m.title]
-            course_topics = [m.title for m in modules if m.title][:8]
-
-    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
-    if not effective_role and profile and profile.role_applied_for:
-        effective_role = profile.role_applied_for
-    if not effective_level and profile and profile.current_designation:
-        effective_level = profile.current_designation
-
-    if not effective_role:
-        effective_role = "Software Engineer"
-    if not effective_level:
-        effective_level = "Junior"
-
-    resume_text = (resume_store.get(user.username) or "").strip()
-    if not resume_text and profile and profile.resume_file_path:
-        resume_path = Path(profile.resume_file_path)
-        if resume_path.exists():
-            try:
-                suffix = resume_path.suffix.lower()
-                if suffix == ".pdf":
-                    from pypdf import PdfReader
-                    reader = PdfReader(str(resume_path))
-                    resume_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
-                elif suffix == ".docx":
-                    from docx import Document
-                    doc = Document(str(resume_path))
-                    resume_text = "\n".join(p.text for p in doc.paragraphs).strip()
-                else:
-                    resume_text = resume_path.read_text(encoding="utf-8", errors="ignore").strip()
-            except Exception:
-                resume_text = ""
-    if resume_text:
-        resume_store[user.username] = resume_text
-
-    effective_company = (profile.company_name if profile else "") or ""
-    effective_jd = (profile.job_description if profile else "") or ""
-
-    interview_sessions[user.username] = {
-        "role": effective_role,
-        "level": effective_level,
-        "course_id": course_id,
-        "company_name": effective_company,
-        "job_description": effective_jd,
-        "questions": [],
-        "answers": [],
-        "completed_modules": completed_modules,
-        "course_topics": course_topics,
-        "categories": [],
-        **_init_interview_session_fields(
-            interview_mode or "placement_simulation",
-            selected_round,
-        ),
-    }
-    session = interview_sessions[user.username]
-    _prepare_interview_session(
-        session,
+    return _build_interview_context(
+        request=request,
+        user=user,
+        role=role,
+        level=level,
+        course_id=course_id,
+        db=db,
         interview_mode=interview_mode or "placement_simulation",
         selected_round=selected_round,
     )
 
-    current_round = session.get("current_round", "technical")
-    round_executable = current_round in EXECUTABLE_ROUNDS
 
-    logger.info(
-        "Interview entry: mode=%s round=%s executable=%s",
-        session.get("interview_mode"),
-        current_round,
-        round_executable,
-    )
+@app.get("/interview/continue", response_class=HTMLResponse)
+def interview_continue(request: Request, db: Session = Depends(get_db)):
+    """Continue multi-round placement simulation to the active round."""
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not logged in")
 
-    return templates.TemplateResponse(request, "interview.html", {
+    session = interview_sessions.get(user.username)
+    if not session:
+        return RedirectResponse(url="/index", status_code=303)
+
+    _ensure_round_fields(session)
+    return _render_round_page(request, user, session)
+
+
+@app.get("/oa/report", response_class=HTMLResponse)
+def oa_report_page(request: Request, db: Session = Depends(get_db)):
+    """Show Online Assessment report after individual practice or review."""
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    session = interview_sessions.get(user.username, {})
+    report = session.get("oa_report") or report_store.get(user.username, {})
+    if not report or report.get("round_type") != "online_assessment":
+        return RedirectResponse(url="/index", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "oa_report.html",
+        {
             "request": request,
             "username": user.username,
-            "user_id": user.id,
-            "role": effective_role,
-            "level": effective_level,
-            "course_id": course_id,
-            "interview_mode": session.get("interview_mode"),
-            "current_round": current_round,
-            "round_executable": round_executable,
+            "role": session.get("role", report.get("role", "")),
+            "level": session.get("level", report.get("level", "")),
+            "report": report,
+            "interview_mode": session.get("interview_mode", "individual_practice"),
         },
     )
+
+
+# ===========================================================================
+# ONLINE ASSESSMENT API
+# ===========================================================================
+@app.post("/api/oa/generate")
+async def api_oa_generate(request: Request, db: Session = Depends(get_db)):
+    """Generate 10 MCQs and store correct answers server-side."""
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    session = interview_sessions.get(user.username)
+    if not session:
+        raise HTTPException(status_code=400, detail="No active interview session")
+
+    _ensure_round_fields(session)
+    if session.get("current_round") != "online_assessment":
+        raise HTTPException(status_code=400, detail="Online Assessment is not the active round")
+
+    if session.get("oa_questions"):
+        client_questions = [
+            _strip_oa_question_for_client(q, i)
+            for i, q in enumerate(session["oa_questions"])
+        ]
+        return JSONResponse(content={"questions": client_questions, "total": len(client_questions)})
+
+    role = session.get("role", "Software Engineer")
+    level = session.get("level", "Junior")
+
+    result = await oa_chain.invoke({"role": role, "level": level})
+    if result.status != "success":
+        raise HTTPException(status_code=500, detail="Failed to generate OA questions")
+
+    try:
+        parsed = extract_json(result.output)
+        questions = _validate_oa_questions(parsed.get("questions", []))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid OA question set: {exc}")
+
+    session["oa_questions"] = questions
+    session["oa_answers"] = {}
+
+    client_questions = [
+        _strip_oa_question_for_client(q, i) for i, q in enumerate(questions)
+    ]
+    return JSONResponse(content={"questions": client_questions, "total": len(client_questions)})
+
+
+@app.post("/api/oa/submit")
+async def api_oa_submit(request: Request, db: Session = Depends(get_db)):
+    """Score OA answers and route to report or next placement round."""
+    user = get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    body = await request.json()
+    submitted = body.get("answers", [])
+    if not isinstance(submitted, list):
+        raise HTTPException(status_code=400, detail="answers must be a list")
+
+    session = interview_sessions.get(user.username)
+    if not session or not session.get("oa_questions"):
+        raise HTTPException(status_code=400, detail="No OA session found")
+
+    stored_questions = session["oa_questions"]
+    if len(submitted) != len(stored_questions):
+        raise HTTPException(status_code=400, detail="All questions must be answered")
+
+    correct_count = 0
+    incorrect_details = []
+    option_labels = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
+
+    for i, question in enumerate(stored_questions):
+        user_answer = _normalize_oa_answer(submitted[i] if i < len(submitted) else "")
+        correct_answer = question["correct_answer"]
+        is_correct = user_answer == correct_answer
+        if is_correct:
+            correct_count += 1
+        else:
+            incorrect_details.append({
+                "question": question["question"],
+                "your_answer": user_answer or "Not answered",
+                "your_answer_text": question.get(option_labels.get(user_answer, ""), "Not answered"),
+                "correct_answer": correct_answer,
+                "correct_answer_text": question.get(option_labels.get(correct_answer, ""), ""),
+                "explanation": question["explanation"],
+                "topic": question.get("topic", ""),
+            })
+
+    incorrect_count = OA_QUESTION_COUNT - correct_count
+    score_ratio = correct_count / OA_QUESTION_COUNT
+    percentage = round(score_ratio * 100, 1)
+
+    report = {
+        "round_type": "online_assessment",
+        "role": session.get("role", ""),
+        "level": session.get("level", ""),
+        "total_questions": OA_QUESTION_COUNT,
+        "correct_answers": correct_count,
+        "incorrect_answers": incorrect_count,
+        "score": score_ratio,
+        "percentage": percentage,
+        "incorrect_details": incorrect_details,
+    }
+
+    session["oa_report"] = report
+    session["oa_answers"] = submitted
+    report_store[user.username] = report
+
+    # Persist OA attempt to database (reusing Technical Interview history mechanism)
+    from models import Interview
+    interview_row = Interview(
+        user_id=user.id,
+        role=session.get("role", ""),
+        date=datetime.utcnow(),
+        score=percentage,
+        report_json=json.dumps(report),
+    )
+    db.add(interview_row)
+    db.commit()
+
+    interview_mode = session.get("interview_mode", "individual_practice")
+    if interview_mode == "placement_simulation":
+        _advance_round(session)
+        next_round = session.get("current_round")
+        if next_round == "technical":
+            redirect_url = "/interview/continue"
+        elif next_round:
+            redirect_url = "/interview/continue"
+        else:
+            redirect_url = "/oa/report"
+    else:
+        redirect_url = "/oa/report"
+
+    status = session.setdefault("round_status", {})
+    status["online_assessment"] = "completed"
+
+    return JSONResponse(content={
+        "report": report,
+        "redirect_url": redirect_url,
+        "interview_mode": interview_mode,
+    })
 
 
 # ===========================================================================
@@ -1585,6 +1846,13 @@ async def api_interview_next_question(request: Request, db: Session = Depends(ge
 
     _ensure_round_fields(session)
 
+    current_round = session.get("current_round", "technical")
+    if current_round not in ("technical", "hr"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Question generation is only available for technical or HR rounds (current: {current_round})",
+        )
+
     # Ensure categories always exist
     if "categories" not in session:
         session["categories"] = []
@@ -1612,20 +1880,67 @@ async def api_interview_next_question(request: Request, db: Session = Depends(ge
     # LLM CALL (FIXED INPUT)
     # -----------------------------
     course_id = session.get("course_id", body.get("course_id"))
-    llm_payload = {
-        "role": role,
-        "level": level,
-        "resume_text": resume_text,
-        "completed_modules": completed_modules,
-        "course_topics": course_topics,
-        "previous_questions": previous_questions,
-        "used_categories": used_categories,
-        **jd_fields,
-    }
-    if course_id is not None:
-        llm_payload["context_priority"] = "course_focused"
-        llm_payload["instruction_override"] = "Generate mostly questions from course_topics and completed_modules. Only 20-30% can be resume or general role-based."
-        logger.info("Course-focused interview context applied for user_id=%s course_id=%s", user.id, course_id)
+    interview_type = session.get("interview_type", "technical")
+    
+    if interview_type == "hr":
+        # HR-specific generation logic: Personalized and Realistic
+        q_index = len(previous_questions) + 1
+        
+        # Define the mandatory sequence for a 6-question HR interview
+        sequence = {
+            1: "Introduction (Mandatory: e.g., 'Tell me about yourself')",
+            2: "Resume/Background (Mandatory: focus on internships, education, or background. Use resume data here)",
+            3: "Project-based (Mandatory: use one major project from resume to ask about challenges, tech choices, or improvements)",
+            4: "Behavioral (Mandatory: conflict, failures, teamwork, or leadership)",
+            5: "Situational/Company Fit (Mandatory: use JD/Company info for 'Why this company/role' or general 'Why hire you/5-year goals')",
+            6: "Closing HR Question (Mandatory: strengths/weaknesses, motivations, or closing questions)"
+        }
+        
+        current_target = sequence.get(q_index, "General HR fit")
+        
+        llm_payload = {
+            "role": role,
+            "level": level,
+            "resume_text": resume_text,
+            "previous_questions": previous_questions,
+            "company_name": jd_fields.get("company_name", ""),
+            "job_description": jd_fields.get("job_description", ""),
+            "instruction_override": (
+                f"You are an expert HR Recruiter conducting a professional campus placement interview. "
+                f"This is exactly question {q_index} of 6. You MUST follow this structured sequence: "
+                f"Q1:Intro -> Q2:Resume -> Q3:Project -> Q4:Behavioral -> Q5:Situational/Fit -> Q6:Closing. "
+                f"The target for this current question ({q_index}) is: {current_target}. "
+                f"CRITICAL CONSTRAINTS: "
+                f"1. Resume and Project data MUST ONLY be used for Question 2 and Question 3. "
+                f"2. Do NOT ask more than one project question and one resume question in the whole interview. "
+                f"3. For Q5, if company_name or job_description is available, personalize it to the company; otherwise, ask about career goals. "
+                f"4. Ensure the question is open-ended, professional, and progressively deeper than previous questions. "
+                f"5. Do NOT repeat any of these previous questions: {previous_questions}. "
+                f"6. The tone must be a realistic campus placement HR interview."
+            ),
+        }
+    else:
+        # Preserve existing Technical generation logic
+        llm_payload = {
+            "role": role,
+            "level": level,
+            "resume_text": resume_text,
+            "completed_modules": completed_modules,
+            "course_topics": course_topics,
+            "previous_questions": previous_questions,
+            "used_categories": used_categories,
+            **jd_fields,
+        }
+        if course_id is not None:
+            llm_payload["context_priority"] = "course_focused"
+            llm_payload["instruction_override"] = "Generate mostly questions from course_topics and completed_modules. Only 20-30% can be resume or general role-based."
+            logger.info("Course-focused interview context applied for user_id=%s course_id=%s", user.id, course_id)
+        else:
+            llm_payload["instruction_override"] = (
+                f"Generate question {len(previous_questions) + 1} of approximately {TECHNICAL_QUESTION_COUNT} "
+                "for a personalized technical interview. Mix resume, project, skill, JD, company-specific, "
+                "coding (discussion format), and technical concept questions. Avoid repetition."
+            )
 
     result = await question_chain.invoke(llm_payload)
 
@@ -1719,6 +2034,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
             questions_answers,
             company_name=company_name,
             job_description=job_description,
+            interview_type=session.get("interview_type", "technical"),
         )
         content_answers = content_result.get("answers", [])
         aggregate = content_result.get("aggregate", {})
@@ -2054,6 +2370,9 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
         db.commit()
         db.refresh(interview_row)
 
+        # Add the database ID to the report for linking in the placement report
+        report["interview_id"] = interview_row.id
+
         # Update rich UserSkillProfile based on this interview
         profile_row = get_or_create_user_profile(db, user)
         profile_obj: UserSkillProfile
@@ -2255,7 +2574,38 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         db.commit()
 
-        return report
+        interview_mode = session.get("interview_mode", "individual_practice")
+        current_round = session.get("current_round")
+        redirect_url = "/report"
+        if interview_mode == "placement_simulation":
+            # Collect report for simulation in session
+            session.setdefault("simulation_reports", {})
+            
+            _advance_round(session)
+            _skip_to_executable_round(session)
+            next_round = session.get("current_round")
+            if next_round:
+                redirect_url = "/interview/continue"
+            else:
+                # All rounds completed, including HR
+                # Ensure OA report is also captured from its own session key
+                oa_report = session.get("oa_report")
+                if oa_report:
+                    session["simulation_reports"]["online_assessment"] = oa_report
+                redirect_url = "/placement-report"
+            
+            status = session.setdefault("round_status", {})
+            if current_round:
+                status[current_round] = "completed"
+
+        # Ensure report is JSON serializable (convert datetimes to strings)
+        serializable_report = json.loads(json.dumps(report, default=str))
+
+        if interview_mode == "placement_simulation":
+            if current_round:
+                session["simulation_reports"][current_round] = report
+
+        return JSONResponse(content={"report": serializable_report, "redirect_url": redirect_url})
     
     else:
         # Old format
@@ -2376,6 +2726,65 @@ def _get_resources_by_concept(course_id: int, db: Session) -> dict:
         grouped.setdefault(cr.concept or "General", []).append(cr)
     return grouped
 
+
+@app.get("/placement-report", response_class=HTMLResponse)
+def placement_report_page(request: Request, db: Session = Depends(get_db)):
+    """Render the combined Placement Simulation Report."""
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+
+    session = interview_sessions.get(user.username, {})
+    reports = session.get("simulation_reports", {})
+    
+    if not reports:
+        return RedirectResponse("/index")
+
+    oa_report = reports.get("online_assessment", {})
+    tech_report = reports.get("technical", {})
+    hr_report = reports.get("hr", {})
+
+    # Calculate overall score (Average of the three)
+    scores = []
+    if oa_report: scores.append(oa_report.get("percentage", 0))
+    if tech_report: scores.append(tech_report.get("overall_score", 0))
+    if hr_report: scores.append(hr_report.get("overall_score", 0))
+    
+    overall_score = round(sum(scores) / len(scores), 1) if scores else 0
+
+    # To provide links to full reports, we need the interview IDs.
+    # We fetch the most recent interview for each executable round for this user.
+    from models import Interview
+    tech_iv = db.query(Interview).filter(Interview.user_id == user.id, Interview.role == session.get("role")).order_by(Interview.date.desc()).first()
+    # Note: Since we don't store round_type in Interview model (it's in report_json), 
+    # a more robust way is to check report_json or rely on the fact that Technical comes before HR.
+    # However, the prompt asks to reuse existing routes. 
+    # We will pass the reports and the session, and the template will handle the links.
+    # To be precise, we'll add the ID to the reports if not present.
+    
+    # For Technical/HR, we find the most recent Interview record that matches the round.
+    # Since we only have one simulation at a time, we can just pass the IDs found.
+    
+    from datetime import datetime
+    current_date = datetime.now().strftime("%B %d, %Y")
+    
+    if overall_score >= 80: verdict = "Highly Recommended"
+    elif overall_score >= 60: verdict = "Recommended"
+    elif overall_score >= 40: verdict = "Average"
+    else: verdict = "Needs Improvement"
+
+    return templates.TemplateResponse(request, "placement_report.html", {
+        "request": request,
+        "username": user.username,
+        "oa_report": oa_report,
+        "tech_report": tech_report,
+        "hr_report": hr_report,
+        "overall_score": overall_score,
+        "overall_verdict": verdict,
+        "current_date": current_date,
+        "role": session.get("role", "Candidate"),
+        "level": session.get("level", "Junior"),
+    })
 
 @app.get("/report", response_class=HTMLResponse)
 def report_page(request: Request, db: Session = Depends(get_db)):
@@ -2741,7 +3150,7 @@ def _build_unified_learning_timeline(
                 "rl_difficulty": rl.get("course_difficulty"),
                 "rl_topics": rl.get("course_topics") or [],
                 "rl_reward": rl.get("reward"),
-                "report_url": f"/interview-report/{iv.id}",
+                "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
                 "adaptive_course": adaptive_course,
                 "followup_url": followup_url,
                 "level": level,
@@ -3165,7 +3574,7 @@ async def create_course_from_resources(
                         title=resource.title,
                         url=resource.url,
                         source=resource.source,
-                        rank_score=round(score, 4),
+                        rank_score=round(float(score), 4),
                         explanation=concept_explanations.get(resource.id) or None,
                         resource_metadata=resource.to_dict(),
                     )

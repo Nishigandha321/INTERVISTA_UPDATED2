@@ -45,7 +45,7 @@
 </nav>
 
 <header class="page-header">
-<h1>AI Voice Interview</h1>
+<h1>Technical Interview</h1>
 </header>
 
 
@@ -68,7 +68,7 @@
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
 <h2>{{ role }} — {{ level }}</h2>
-<span class="badge" id="question-counter">Question 1 / 5</span>
+<span class="badge" id="question-counter">Question 1 / {{ total_questions|default(9) }}</span>
 </div>
 
 
@@ -95,7 +95,7 @@
 
 <textarea
 id="live-transcript"
-placeholder="Type your answer or code here..."
+placeholder="Type your answer, pseudocode, or code snippet here..."
 style="min-height:80px;opacity:0.85;"></textarea>
 
 </div>
@@ -103,7 +103,11 @@ style="min-height:80px;opacity:0.85;"></textarea>
 
 <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
 
-<button id="btn-submit-code" class="btn" style="display:none;width:160px;">
+<button id="btn-start-recording" class="btn" style="width:160px;">
+Start Recording
+</button>
+
+<button id="btn-submit-answer" class="btn" style="width:160px;">
 Submit Answer
 </button>
 
@@ -139,7 +143,7 @@ Submit Answer
 const ROLE="{{ role }}";
 const LEVEL="{{ level }}";
 const USER_ID="{{ user_id }}";
-const TOTAL_QUESTIONS=5;
+const TOTAL_QUESTIONS={{ total_questions|default(9) }};
 const ROUND_EXECUTABLE={{ "true" if round_executable|default(true) else "false" }};
 const CURRENT_ROUND="{{ current_round|default('technical') }}";
 const INTERVIEW_MODE="{{ interview_mode|default('placement_simulation') }}";
@@ -161,24 +165,32 @@ const MAX_RESTARTS=3;
 
 /* BUTTONS */
 
+document.getElementById("btn-start-recording").onclick = () => {
+    startListening();
+};
+
 document.getElementById("btn-skip").onclick = async () => {
 
 if(answerSubmitted) return;
 
+stopListening();
+document.getElementById("live-transcript").value = "";
 await processAnswer("(skipped)", 0);
 
 };
 
 
-document.getElementById("btn-end-early").onclick = () => {
-
-stopListening();
-evaluateAll();
-
+document.getElementById("btn-end-early").onclick = async () => {
+    stopListening();
+    const answer = document.getElementById("live-transcript").value.trim();
+    if (answer && !answerSubmitted) {
+        await processAnswer(answer || "(no response)", 30);
+    }
+    evaluateAll();
 };
 
 
-document.getElementById("btn-submit-code").onclick = async () => {
+document.getElementById("btn-submit-answer").onclick = async () => {
 
 if(answerSubmitted) return;
 
@@ -200,6 +212,7 @@ resolve();
 return;
 }
 
+stopListening();
 window.speechSynthesis.cancel();
 
 const utter=new SpeechSynthesisUtterance(text);
@@ -246,23 +259,19 @@ function startListening(){
   const SILENCE_TIMEOUT=8000;
 
   function resetSilenceTimer(){
-    clearTimeout(silenceTimer);
-    if(!manualSubmitMode && !answerSubmitted){
-      silenceTimer=setTimeout(()=>{
-        finishAnswer();
-      },SILENCE_TIMEOUT);
-    }
+    // Automatic submission disabled to require manual 'Submit Answer'
   }
 
   recognition.onstart=()=>{
     isListening=true;
     statusText.textContent="Listening...";
     ring.classList.add("active");
-    resetSilenceTimer();
   };
 
   recognition.onresult=(event)=>{
-    resetSilenceTimer();
+    if(!isListening) return;
+
+    // Removed resetSilenceTimer() call to disable auto-submit
 
     let interim="";
 
@@ -338,17 +347,7 @@ function stopListening(){
 const transcriptBox=document.getElementById("live-transcript");
 
 transcriptBox.addEventListener("input",()=>{
-
-if(manualSubmitMode) return;
-
-clearTimeout(typingTimer);
-
-typingTimer=setTimeout(()=>{
-
-finishAnswer();
-
-},10000);
-
+    // Automatic submission disabled to require manual 'Submit Answer'
 });
 
 
@@ -368,7 +367,7 @@ showQuestion();
 
 function showQuestion(){
 
-if(currentIdx >= questions.length){
+if(currentIdx >= TOTAL_QUESTIONS){
 evaluateAll();
 return;
 }
@@ -377,9 +376,11 @@ answerSubmitted=false;
 
 const qObj = questions[currentIdx];
 const q = typeof qObj === "string" ? qObj : qObj.question;
+const category = (typeof qObj === "object" && qObj.category) ? qObj.category : "";
+const isCoding = category === "coding";
 
 document.getElementById("question-counter").textContent =
-`Question ${currentIdx+1} / ${questions.length}`;
+`Question ${currentIdx+1} / ${TOTAL_QUESTIONS}`;
 
 document.getElementById("current-question").textContent = q;
 
@@ -387,24 +388,30 @@ document.getElementById("live-transcript").value="";
 
 clearTimeout(typingTimer);
 
-/* LAST TWO QUESTIONS REQUIRE MANUAL SUBMIT */
+/* Always require manual submit */
+manualSubmitMode = true;
 
-manualSubmitMode = currentIdx >= questions.length - 2;
+document.getElementById("btn-submit-answer").style.display = "inline-block";
 
-document.getElementById("btn-submit-code").style.display =
-manualSubmitMode ? "inline-block" : "none";
+if (isCoding) {
+  transcriptBox.style.minHeight = "220px";
+  transcriptBox.placeholder = "Explain your approach, write pseudocode, or paste a code snippet...";
+} else {
+  transcriptBox.style.minHeight = "80px";
+  transcriptBox.placeholder = "Type your answer or code here...";
+}
 
 /* Disable typing while AI speaks */
 
 transcriptBox.disabled=true;
 
+stopListening();
 speak(q).then(()=>{
 
 transcriptBox.disabled=false;
 
-/* Start listening only after AI finishes speaking */
-
-startListening();
+/* Clear transcript. Recording stays OFF until user clicks Start Recording */
+document.getElementById("live-transcript").value = "";
 
 });
 
@@ -488,7 +495,7 @@ async function evaluateAll(){
 document.getElementById("interview-phase").style.display="none";
 document.getElementById("evaluating-phase").style.display="block";
 
-await fetch("/api/interview/evaluate",{
+const resp = await fetch("/api/interview/evaluate",{
 
 method:"POST",
 headers:{"Content-Type":"application/json"},
@@ -503,7 +510,13 @@ questions_answers:answers
 
 });
 
-window.location.href="/report";
+if(!resp.ok){
+  document.getElementById("eval-status").textContent = "Evaluation failed. Please try again.";
+  return;
+}
+
+const data = await resp.json();
+window.location.href = data.redirect_url || "/report";
 
 }
 

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/static/styles.css">
+<title>Online Assessment</title>
+<style>
+  .oa-progress-wrap { margin: 16px 0 24px; }
+  .oa-progress-bar {
+    height: 8px;
+    background: var(--border, #e2e8f0);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .oa-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    transition: width 0.25s ease;
+  }
+  .oa-progress-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+    color: var(--text-muted, #64748b);
+  }
+  .oa-option {
+    display: block;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .oa-option:hover { background: #f8fafc; }
+  .oa-option input { margin-right: 10px; }
+  .oa-option.selected {
+    border-color: #667eea;
+    background: #eef2ff;
+  }
+  .oa-nav { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+  .oa-topic {
+    display: inline-block;
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-container">
+    <h2 class="logo">
+      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
+      INTERVISTA
+    </h2>
+    <div class="nav-links">
+      <a href="/index">Home</a>
+    </div>
+    <div class="user-menu">
+      <button class="user-avatar" id="userAvatar">
+        <span class="avatar-circle">{{ username[:1] | upper }}</span>
+      </button>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="user-dropdown-header">
+          <div class="user-name">{{ username }}</div>
+        </div>
+        <a href="/profile" class="dropdown-item">Dashboard</a>
+        <a href="/logout" class="dropdown-item danger">Logout</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<header class="page-header">
+  <h1>Online Assessment</h1>
+  <p style="color: var(--text-muted); margin-top: 8px;">Placement screening — aptitude &amp; CS fundamentals</p>
+</header>
+
+<main>
+  <section id="loading-phase" class="card">
+    <h2>{{ role }} — {{ level }}</h2>
+    <div class="status-indicator">
+      <div class="pulse-dot"></div>
+      <span id="loading-status">Generating assessment questions...</span>
+    </div>
+  </section>
+
+  <section id="quiz-phase" class="card" style="display:none;">
+    <h2>{{ role }} — {{ level }}</h2>
+
+    <div class="oa-progress-wrap">
+      <div class="oa-progress-label">
+        <span id="progress-text">Question 1 / 10</span>
+        <span id="progress-percent">10%</span>
+      </div>
+      <div class="oa-progress-bar">
+        <div class="oa-progress-fill" id="progress-fill" style="width:10%;"></div>
+      </div>
+    </div>
+
+    <span class="oa-topic" id="question-topic"></span>
+    <h3 id="question-text" style="margin-bottom: 20px; line-height: 1.5;"></h3>
+
+    <div id="options-container"></div>
+
+    <div class="oa-nav">
+      <button id="btn-prev" class="btn outline" type="button">Previous</button>
+      <button id="btn-next" class="btn" type="button">Next</button>
+      <button id="btn-submit" class="btn" type="button" style="display:none;">Submit Assessment</button>
+    </div>
+  </section>
+
+  <section id="submitting-phase" class="card" style="display:none;">
+    <h2>Submitting Assessment</h2>
+    <div class="status-indicator">
+      <div class="pulse-dot"></div>
+      <span>Calculating your score...</span>
+    </div>
+  </section>
+</main>
+
+<script>
+(function(){
+  const TOTAL = 10;
+  let questions = [];
+  let currentIdx = 0;
+  let answers = new Array(TOTAL).fill("");
+
+  const loadingPhase = document.getElementById("loading-phase");
+  const quizPhase = document.getElementById("quiz-phase");
+  const submittingPhase = document.getElementById("submitting-phase");
+  const progressText = document.getElementById("progress-text");
+  const progressPercent = document.getElementById("progress-percent");
+  const progressFill = document.getElementById("progress-fill");
+  const questionTopic = document.getElementById("question-topic");
+  const questionText = document.getElementById("question-text");
+  const optionsContainer = document.getElementById("options-container");
+  const btnPrev = document.getElementById("btn-prev");
+  const btnNext = document.getElementById("btn-next");
+  const btnSubmit = document.getElementById("btn-submit");
+
+  function updateProgress() {
+    const num = currentIdx + 1;
+    const pct = Math.round((num / TOTAL) * 100);
+    progressText.textContent = `Question ${num} / ${TOTAL}`;
+    progressPercent.textContent = `${pct}%`;
+    progressFill.style.width = `${pct}%`;
+    btnPrev.disabled = currentIdx === 0;
+    btnNext.style.display = currentIdx === TOTAL - 1 ? "none" : "inline-block";
+    btnSubmit.style.display = currentIdx === TOTAL - 1 ? "inline-block" : "none";
+  }
+
+  function renderQuestion() {
+    const q = questions[currentIdx];
+    if (!q) return;
+
+    questionTopic.textContent = q.topic || "General";
+    questionText.textContent = q.question;
+    optionsContainer.innerHTML = "";
+
+    const labels = [
+      ["A", q.option_a],
+      ["B", q.option_b],
+      ["C", q.option_c],
+      ["D", q.option_d],
+    ];
+
+    labels.forEach(([letter, text]) => {
+      const label = document.createElement("label");
+      label.className = "oa-option" + (answers[currentIdx] === letter ? " selected" : "");
+      label.innerHTML = `<input type="radio" name="oa-option" value="${letter}" ${answers[currentIdx] === letter ? "checked" : ""}> <strong>${letter}.</strong> ${text}`;
+      label.querySelector("input").addEventListener("change", () => {
+        answers[currentIdx] = letter;
+        renderQuestion();
+      });
+      optionsContainer.appendChild(label);
+    });
+
+    updateProgress();
+  }
+
+  btnPrev.addEventListener("click", () => {
+    if (currentIdx > 0) {
+      currentIdx--;
+      renderQuestion();
+    }
+  });
+
+  btnNext.addEventListener("click", () => {
+    if (!answers[currentIdx]) {
+      alert("Please select an answer before continuing.");
+      return;
+    }
+    if (currentIdx < TOTAL - 1) {
+      currentIdx++;
+      renderQuestion();
+    }
+  });
+
+  btnSubmit.addEventListener("click", async () => {
+    if (!answers[currentIdx]) {
+      alert("Please select an answer before submitting.");
+      return;
+    }
+    const unanswered = answers.findIndex(a => !a);
+    if (unanswered !== -1) {
+      alert(`Please answer question ${unanswered + 1} before submitting.`);
+      currentIdx = unanswered;
+      renderQuestion();
+      return;
+    }
+
+    quizPhase.style.display = "none";
+    submittingPhase.style.display = "block";
+
+    try {
+      const resp = await fetch("/api/oa/submit", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ answers }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || "Submission failed");
+      }
+      const data = await resp.json();
+      window.location.href = data.redirect_url || "/oa/report";
+    } catch (err) {
+      submittingPhase.style.display = "none";
+      quizPhase.style.display = "block";
+      alert("Failed to submit: " + err.message);
+    }
+  });
+
+  async function init() {
+    try {
+      const resp = await fetch("/api/oa/generate", { method: "POST" });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || "Failed to load questions");
+      }
+      const data = await resp.json();
+      questions = data.questions || [];
+      if (questions.length !== TOTAL) {
+        throw new Error("Expected 10 questions");
+      }
+      loadingPhase.style.display = "none";
+      quizPhase.style.display = "block";
+      renderQuestion();
+    } catch (err) {
+      document.getElementById("loading-status").textContent = "Error: " + err.message;
+    }
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>

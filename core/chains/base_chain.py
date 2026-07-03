@@ -324,7 +324,8 @@ class InterviewQuestionChain(BaseChain):
             "completed_modules": ", ".join(input_data.get("completed_modules", [])) if isinstance(input_data.get("completed_modules", []), list) else str(input_data.get("completed_modules", "")),
             "course_topics": ", ".join(input_data.get("course_topics", [])) if isinstance(input_data.get("course_topics", []), list) else str(input_data.get("course_topics", "")),
             "previous_questions": "\n".join(previous_questions) if isinstance(previous_questions, list) else str(previous_questions),
-            "used_categories": ", ".join(used_categories) if isinstance(used_categories, list) else str(used_categories)
+            "used_categories": ", ".join(used_categories) if isinstance(used_categories, list) else str(used_categories),
+            "instruction_override": input_data.get("instruction_override") or "None",
         }
         
         # Use RAG to retrieve similar interview questions and best practices
@@ -365,6 +366,28 @@ class InterviewQuestionChain(BaseChain):
             logger.debug(f"RAG retrieval skipped: {str(e)}")
         
         return ""
+
+
+class OnlineAssessmentChain(BaseChain):
+    """Generate placement screening MCQs for the Online Assessment round."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, name="OnlineAssessmentChain", **kwargs)
+
+    async def invoke(self, input_data: Dict[str, Any], **kwargs) -> ChainResult:
+        prepared = {
+            "prompt_name": "oa_generate_prompt",
+            "role": input_data.get("role", "Software Engineer"),
+            "level": input_data.get("level", "Junior"),
+        }
+        return await super().invoke(
+            prepared,
+            use_rag=False,
+            json_mode=True,
+            use_cache=False,
+            max_tokens=8000,
+            **kwargs,
+        )
 
 
 class EvaluationChain(BaseChain):

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Placement Simulation Report | Intervista</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/report.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root {
+    --primary-blue: #0f172a;
+    --accent-blue: #3b82f6;
+    --secondary-blue: #60a5fa;
+    --bg-main: #f8fafc;
+    --bg-card: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --accent-green: #10b981;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --radius-lg: 24px;
+    --radius-md: 16px;
+    --radius-sm: 8px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .report-container {
+    max-width: 1200px;
+    margin: 60px auto;
+    padding: 0 24px;
+  }
+
+  /* Header Card - Modern Gradient & Glassmorphism */
+  .header-card {
+    background: radial-gradient(circle at top left, #1e40af, #0f172a);
+    color: white;
+    border-radius: var(--radius-lg);
+    padding: 60px 40px;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .header-card::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 40%;
+    height: 60%;
+    background: rgba(59, 130, 246, 0.2);
+    filter: blur(80px);
+    border-radius: 50%;
+  }
+  .header-title {
+    font-size: 36px;
+    font-weight: 800;
+    margin-bottom: 16px;
+    letter-spacing: -0.025em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+  .candidate-info {
+    font-size: 18px;
+    opacity: 0.85;
+    margin-bottom: 40px;
+    font-weight: 400;
+  }
+  .header-score-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  .large-circular-score {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 56px;
+    font-weight: 800;
+    border: 6px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.2);
+    transition: var(--transition);
+  }
+  .large-circular-score:hover {
+    transform: scale(1.05);
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+  .overall-verdict-badge {
+    background: white;
+    color: var(--primary-blue);
+    padding: 10px 28px;
+    border-radius: 99px;
+    font-weight: 700;
+    font-size: 16px;
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Performance Summary Grid */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+    margin-bottom: 48px;
+  }
+  .summary-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    padding: 32px 24px;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .summary-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--accent-blue);
+  }
+  .summary-card.oa { border-top: 6px solid var(--accent-blue); }
+  .summary-card.tech { border-top: 6px solid var(--accent-green); }
+  .summary-card.hr { border-top: 6px solid var(--accent-purple); }
+  .summary-card.overall { border-top: 6px solid var(--primary-blue); background: #f1f5f9; }
+
+  .card-title {
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 24px;
+    font-size: 18px;
+  }
+  .progress-ring {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin-bottom: 20px;
+  }
+  .progress-ring svg {
+    transform: rotate(-90deg);
+  }
+  .progress-ring circle {
+    fill: transparent;
+    stroke-width: 12;
+    stroke-linecap: round;
+  }
+  .progress-ring .bg { stroke: #f1f5f9; }
+  .progress-ring .fill {
+    transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .progress-value {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-main);
+  }
+  .verdict-pill {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 99px;
+    margin-top: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pill-green { background: #dcfce7; color: #166534; }
+  .pill-yellow { background: #fef9c3; color: #854d0e; }
+  .pill-red { background: #fee2e2; color: #991b1b; }
+
+  /* Performance Table */
+  .table-container {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 48px;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 32px;
+    color: var(--text-main);
+    letter-spacing: -0.025em;
+  }
+  .section-header i { color: var(--accent-blue); }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    text-align: left;
+  }
+  th {
+    padding: 16px;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid #f1f5f9;
+  }
+  td {
+    padding: 24px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 15px;
+    vertical-align: middle;
+    transition: var(--transition);
+  }
+  tr:hover td {
+    background-color: #f8fafc;
+  }
+  .round-name { font-weight: 700; color: var(--text-main); }
+  .takeaway-text { color: var(--text-muted); font-size: 14px; max-width: 400px; }
+  .btn-report {
+    padding: 10px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: var(--transition);
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: var(--text-main);
+    box-shadow: var(--shadow-sm);
+  }
+  .btn-report:hover {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Insight Cards */
+  .insights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+    margin-bottom: 48px;
+  }
+  .insight-card {
+    border-radius: var(--radius-md);
+    padding: 32px;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    transition: var(--transition);
+    border: 1px solid transparent;
+  }
+  .insight-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+  }
+  .insight-card.strengths { background-color: #f0fdf4; border-color: #bbf7d0; }
+  .insight-card.improvement { background-color: #fef2f2; border-color: #fecaca; }
+  .insight-card.recommendations { background-color: #eff6ff; border-color: #bfdbfe; }
+  
+  .insight-title {
+    font-weight: 800;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-main);
+  }
+  .insight-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .insight-item {
+    padding: 12px 0;
+    font-size: 15px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    color: var(--text-main);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+  .insight-item:last-child { border-bottom: none; }
+  .insight-item i { margin-top: 4px; font-size: 14px; }
+
+  /* Timeline */
+  .timeline-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 48px;
+    border: 1px solid #e2e8f0;
+  }
+  .timeline {
+    position: relative;
+    margin-left: 20px;
+    padding-left: 40px;
+    border-left: 4px solid #e2e8f0;
+  }
+  .timeline-step {
+    position: relative;
+    margin-bottom: 40px;
+  }
+  .timeline-step::before {
+    content: '';
+    position: absolute;
+    left: -48px;
+    top: 4px;
+    width: 16px;
+    height: 16px;
+    background: var(--accent-blue);
+    border: 4px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px rgba(59,130,246,0.2);
+  }
+  .step-content {
+    font-size: 16px;
+    color: var(--text-main);
+    font-weight: 500;
+    padding: 12px 20px;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+    transition: var(--transition);
+    cursor: default;
+  }
+  .step-content:hover {
+    background: #eff6ff;
+    color: var(--accent-blue);
+    transform: translateX(10px);
+  }
+
+  /* Footer */
+  .footer-card {
+    text-align: center;
+    padding: 80px 40px;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    margin-bottom: 80px;
+    border: 1px solid #e2e8f0;
+  }
+  .footer-msg {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--text-main);
+    margin-bottom: 12px;
+    letter-spacing: -0.025em;
+  }
+  .footer-sub {
+    color: var(--text-muted);
+    font-size: 18px;
+    margin-bottom: 32px;
+  }
+  .final-score-badge {
+    display: inline-block;
+    font-size: 64px;
+    font-weight: 900;
+    color: var(--accent-blue);
+    line-height: 1;
+  }
+
+  /* Animations */
+  .fade-in {
+    animation: fadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    opacity: 0;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+
+<body>
+<nav class="navbar">
+  <div class="nav-container">
+    <h2 class="logo">
+      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
+      INTERVISTA
+    </h2>
+    <div class="nav-links">
+      <a href="/index">Home</a>
+    </div>
+    <div class="user-menu">
+      <button class="user-avatar" id="userAvatar">
+        <span class="avatar-circle">{{ username[:1] | upper }}</span>
+      </button>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="user-dropdown-header">
+          <div class="user-name">{{ username }}</div>
+        </div>
+        <a href="/profile" class="dropdown-item">Dashboard</a>
+        <a href="/logout" class="dropdown-item danger">Logout</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="report-container">
+  
+  <!-- Header Card -->
+  <header class="header-card fade-in">
+    <div class="header-title">
+      <i class="fas fa-trophy"></i> Placement Simulation Report
+    </div>
+    <div class="candidate-info">
+      <strong>{{ username }}</strong> &bull; {{ role }} ({{ level }}) &bull; {{ date }}
+    </div>
+    <div class="header-score-container">
+      <div class="large-circular-score">{{ overall_score }}</div>
+      <div class="overall-verdict-badge">
+        Verdict: {{ "Strong Fit" if overall_score >= 75 else "Average Fit" if overall_score >= 50 else "Needs Improvement" }}
+      </div>
+    </div>
+  </header>
+
+  <!-- Performance Summary -->
+  <div class="summary-grid fade-in" style="animation-delay: 0.1s">
+    <!-- OA Card -->
+    <div class="summary-card oa">
+      <div class="card-title">Online Assessment</div>
+      <div class="progress-ring">
+        <svg width="100" height="100">
+          <circle class="bg" cx="50" cy="50" r="40"></circle>
+          <circle class="fill" cx="50" cy="50" r="40" 
+            stroke="#3b82f6" 
+            stroke-dasharray="251.2" 
+            stroke-dashoffset="{{ 251.2 - (251.2 * (oa_report.percentage if oa_report else 0) / 100) }}"></circle>
+        </svg>
+        <div class="progress-value">{{ oa_report.percentage if oa_report else 0 }}</div>
+      </div>
+      <span class="verdict-pill {{ 'pill-green' if (oa_report and oa_report.percentage >= 70) else 'pill-yellow' if (oa_report and oa_report.percentage >= 40) else 'pill-red' }}">
+        {{ "Excellent" if (oa_report and oa_report.percentage >= 70) else "Fair" if (oa_report and oa_report.percentage >= 40) else "Poor" }}
+      </span>
+    </div>
+
+    <!-- Technical Card -->
+    <div class="summary-card tech">
+      <div class="card-title">Technical Interview</div>
+      <div class="progress-ring">
+        <svg width="100" height="100">
+          <circle class="bg" cx="50" cy="50" r="40"></circle>
+          <circle class="fill" cx="50" cy="50" r="40" 
+            stroke="#10b981" 
+            stroke-dasharray="251.2" 
+            stroke-dashoffset="{{ 251.2 - (251.2 * (tech_report.overall_score if tech_report else 0) / 100) }}"></circle>
+        </svg>
+        <div class="progress-value">{{ tech_report.overall_score if tech_report else 0 }}</div>
+      </div>
+      <span class="verdict-pill {{ 'pill-green' if (tech_report and tech_report.overall_score >= 70) else 'pill-yellow' if (tech_report and tech_report.overall_score >= 40) else 'pill-red' }}">
+        {{ "Strong" if (tech_report and tech_report.overall_score >= 70) else "Average" if (tech_report and tech_report.overall_score >= 40) else "Weak" }}
+      </span>
+    </div>
+
+    <!-- HR Card -->
+    <div class="summary-card hr">
+      <div class="card-title">HR Interview</div>
+      <div class="progress-ring">
+        <svg width="100" height="100">
+          <circle class="bg" cx="50" cy="50" r="40"></circle>
+          <circle class="fill" cx="50" cy="50" r="40" 
+            stroke="#8b5cf6" 
+            stroke-dasharray="251.2" 
+            stroke-dashoffset="{{ 251.2 - (251.2 * (hr_report.overall_score if hr_report else 0) / 100) }}"></circle>
+        </svg>
+        <div class="progress-value">{{ hr_report.overall_score if hr_report else 0 }}</div>
+      </div>
+      <span class="verdict-pill {{ 'pill-green' if (hr_report and hr_report.overall_score >= 70) else 'pill-yellow' if (hr_report and hr_report.overall_score >= 40) else 'pill-red' }}">
+        {{ "Professional" if (hr_report and hr_report.overall_score >= 70) else "Adequate" if (hr_report and hr_report.overall_score >= 40) else "Low Fit" }}
+      </span>
+    </div>
+
+    <!-- Overall Card -->
+    <div class="summary-card overall">
+      <div class="card-title">Combined Score</div>
+      <div class="progress-ring">
+        <svg width="100" height="100">
+          <circle class="bg" cx="50" cy="50" r="40"></circle>
+          <circle class="fill" cx="50" cy="50" r="40" 
+            stroke="#1e40af" 
+            stroke-dasharray="251.2" 
+            stroke-dashoffset="{{ 251.2 - (251.2 * overall_score / 100) }}"></circle>
+        </svg>
+        <div class="progress-value">{{ overall_score }}</div>
+      </div>
+      <span class="verdict-pill pill-green">Simulation Final</span>
+    </div>
+  </div>
+
+  <!-- Round Performance Table -->
+  <div class="table-container fade-in" style="animation-delay: 0.2s">
+    <div class="section-header">
+      <i class="fas fa-list-check"></i> Round Performance Detail
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th>Score</th>
+          <th>Verdict</th>
+          <th>Key Takeaway</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="round-name">Online Assessment</td>
+          <td>{{ oa_report.percentage if oa_report else 0 }}%</td>
+          <td><span class="verdict-pill {{ 'pill-green' if (oa_report and oa_report.percentage >= 70) else 'pill-yellow' if (oa_report and oa_report.percentage >= 40) else 'pill-red' }}">
+            {{ "Pass" if (oa_report and oa_report.percentage >= 60) else "Fail" }}
+          </span></td>
+          <td class="takeaway-text">Conceptual accuracy in MCQs.</td>
+          <td><a href="/oa/report" class="btn-report"><i class="fas fa-external-link-alt"></i> View Full Report</a></td>
+        </tr>
+        <tr>
+          <td class="round-name">Technical Interview</td>
+          <td>{{ tech_report.overall_score if tech_report else 0 }} / 100</td>
+          <td><span class="verdict-pill {{ 'pill-green' if (tech_report and tech_report.overall_score >= 70) else 'pill-yellow' if (tech_report and tech_report.overall_score >= 40) else 'pill-red' }}">
+            {{ tech_report.verdict if tech_report else 'N/A' }}
+          </span></td>
+          <td class="takeaway-text">{{ tech_report.performance_summary[:60] + '...' if tech_report else 'No data' }}</td>
+          <td><a href="/interview-report/{{ tech_report.interview_id if tech_report else '#' }}" class="btn-report"><i class="fas fa-external-link-alt"></i> View Full Report</a></td>
+        </tr>
+        <tr>
+          <td class="round-name">HR Interview</td>
+          <td>{{ hr_report.overall_score if hr_report else 0 }} / 100</td>
+          <td><span class="verdict-pill {{ 'pill-green' if (hr_report and hr_report.overall_score >= 70) else 'pill-yellow' if (hr_report and hr_report.overall_score >= 40) else 'pill-red' }}">
+            {{ hr_report.verdict if hr_report else 'N/A' }}
+          </span></td>
+          <td class="takeaway-text">{{ hr_report.performance_summary[:60] + '...' if hr_report else 'No data' }}</td>
+          <td><a href="/interview-report/{{ hr_report.interview_id if hr_report else '#' }}" class="btn-report"><i class="fas fa-external-link-alt"></i> View Full Report</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Insights Section -->
+  <div class="insights-grid fade-in" style="animation-delay: 0.3s">
+    <!-- Strengths -->
+    <div class="insight-card strengths">
+      <div class="insight-title"><i class="fas fa-thumbs-up"></i> Core Strengths</div>
+      <ul class="insight-list">
+        {% set all_strengths = [] %}
+        {% if tech_report and tech_report.detailed_answers %}
+          {% for ans in tech_report.detailed_answers %}
+            {% for s in ans.strengths %}{% if s %}{% set _ = all_strengths.append(s) %}{% endif %}{% endfor %}
+          {% endfor %}
+        {% endif %}
+        {% if hr_report and hr_report.detailed_answers %}
+          {% for ans in hr_report.detailed_answers %}
+            {% for s in ans.strengths %}{% if s %}{% set _ = all_strengths.append(s) %}{% endif %}{% endfor %}
+          {% endfor %}
+        {% endif %}
+        
+        {% if all_strengths %}
+          {% for s in all_strengths[:5] %}
+            <li class="insight-item"><i class="fas fa-check-circle" style="color: var(--accent-green);"></i> {{ s }}</li>
+          {% endfor %}
+        {% else %}
+          <li class="insight-item">Keep practicing to identify core strengths.</li>
+        {% endif %}
+      </ul>
+    </div>
+
+    <!-- Areas to Improve -->
+    <div class="insight-card improvement">
+      <div class="insight-title"><i class="fas fa-triangle-exclamation"></i> Areas to Improve</div>
+      <ul class="insight-list">
+        {% set all_weak = [] %}
+        {% if tech_report and tech_report.weak_topics %}
+          {% for w in tech_report.weak_topics %}{% set _ = all_weak.append(w) %}{% endfor %}
+        {% endif %}
+        {% if hr_report and hr_report.weak_topics %}
+          {% for w in hr_report.weak_topics %}{% set _ = all_weak.append(w) %}{% endfor %}
+        {% endif %}
+
+        {% if all_weak %}
+          {% for w in all_weak[:5] %}
+            <li class="insight-item"><i class="fas fa-circle-exclamation" style="color: var(--accent-red);"></i> {{ w }}</li>
+          {% endfor %}
+        {% else %}
+          <li class="insight-item">No major gaps identified. Keep refining.</li>
+        {% endif %}
+      </ul>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="insight-card recommendations">
+      <div class="insight-title"><i class="fas fa-lightbulb"></i> Next-Step Guidance</div>
+      <ul class="insight-list">
+        {% if tech_report and tech_report.recommended_action %}
+          <li class="insight-item"><i class="fas fa-graduation-cap" style="color: var(--accent-blue);"></i> Recommended: {{ tech_report.recommended_action.title() }}</li>
+        {% endif %}
+        {% if tech_report and tech_report.new_course %}
+          <li class="insight-item"><i class="fas fa-book-open" style="color: var(--accent-blue);"></i> Course: {{ tech_report.new_course.title }}</li>
+        {% endif %}
+        <li class="insight-item"><i class="fas fa-arrow-right" style="color: var(--accent-blue);"></i> Focus on structured STAR answers.</li>
+        <li class="insight-item"><i class="fas fa-arrow-right" style="color: var(--accent-blue);"></i> Refine technical depth in weak topics.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Next Steps Timeline -->
+  <div class="timeline-card fade-in" style="animation-delay: 0.4s">
+    <div class="section-header">
+      <i class="fas fa-route"></i> Personalized Growth Roadmap
+    </div>
+    <div class="timeline">
+      <div class="timeline-step">
+        <div class="step-content">1. Review Online Assessment mistakes and conceptual gaps.</div>
+      </div>
+      <div class="timeline-step">
+        <div class="step-content">2. Practice Technical weak topics using the recommended adaptive course.</div>
+      </div>
+      <div class="timeline-step">
+        <div class="step-content">3. Improve HR communication and behavioral storytelling.</div>
+      </div>
+      <div class="timeline-step">
+        <div class="step-content">4. Retake Placement Simulation to validate improvements.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer-card fade-in" style="animation-delay: 0.5s">
+    <div class="footer-msg">Great effort, {{ username }}! 🚀</div>
+    <div class="footer-sub">Your dedication to improvement is the key to success. Keep evolving.</div>
+    <div class="final-score-badge">{{ overall_score }}%</div>
+    <div style="margin-top: 20px; font-size: 14px; color: var(--text-muted);">
+      Generated by Intervista AI &bull; Professional Placement Analysis
+    </div>
+  </footer>
+
+</div>
+
+<script>
+const avatar   = document.getElementById("userAvatar");
+const dropdown = document.getElementById("userDropdown");
+avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
+window.addEventListener("click", (e) => {
+  if (!avatar.contains(e.target) && !dropdown.contains(e.target))
+    dropdown.classList.remove("show");
+});
+</script>
+</body>
+</html>
