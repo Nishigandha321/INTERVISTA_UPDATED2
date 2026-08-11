@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/intervista-ui.css">
 
 <title>Intervista AI</title>
 </head>
@@ -22,13 +23,31 @@
     </h2>
 
     <div class="nav-links">
+      <a href="/">Home</a>
       <a href="#features">Features</a>
-      <a href="#flow">How it Works</a>
+      <!--<a href="#flow">How it Works</a>-->
       <a href="#contact">Contact</a>
 
+      {% if not username %}
       <a href="/signup" class="btn small-btn">Sign Up</a>
       <a href="/login" class="btn outline-btn">Login</a>
+      {% endif %}
     </div>
+
+    {% if username %}
+    <div class="user-menu">
+      <button class="user-avatar" id="userAvatar" type="button" aria-label="Open account menu">
+        <span class="avatar-circle">{{ username[:1] | upper }}</span>
+      </button>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="user-dropdown-header">
+          <div class="user-name">{{ username }}</div>
+        </div>
+        <a href="/profile" class="dropdown-item">View Dashboard</a>
+        <a href="/logout" class="dropdown-item danger">Log Out</a>
+      </div>
+    </div>
+    {% endif %}
 
   </div>
 </nav>
@@ -51,7 +70,7 @@
 
     <div class="cta">
       <a href="/signup" class="btn">Start your Journey →</a>
-      <a href="#flow" class="btn outline-btn">How It Works</a>
+      <!-- <a href="#flow" class="btn outline-btn">How It Works</a> -->
     </div>
 
   </div>
@@ -142,6 +161,22 @@
 </div>
 
 </footer>
+
+{% if username %}
+<script>
+const avatar = document.getElementById("userAvatar");
+const dropdown = document.getElementById("userDropdown");
+
+if (avatar && dropdown) {
+  avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
+  window.addEventListener("click", (event) => {
+    if (!avatar.contains(event.target) && !dropdown.contains(event.target)) {
+      dropdown.classList.remove("show");
+    }
+  });
+}
+</script>
+{% endif %}
 
 </body>
 </html>

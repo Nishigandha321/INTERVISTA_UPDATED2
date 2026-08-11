@@ -6,11 +6,55 @@ import json
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from pathlib import Path
-import faiss
+
+try:
+    import faiss
+except ImportError:  # pragma: no cover
+    faiss = None
+
 from config.settings import Settings
 from utils.logger import Logger
 
 logger = Logger(__name__)
+
+
+class NumpyIndex:
+    """Fallback index for environments without FAISS."""
+
+    def __init__(self, dimension: int):
+        self.dimension = dimension
+        self.vectors = np.zeros((0, dimension), dtype=np.float32)
+
+    @property
+    def ntotal(self) -> int:
+        return len(self.vectors)
+
+    def add(self, vectors: np.ndarray):
+        vectors = np.asarray(vectors, dtype=np.float32)
+        if vectors.ndim == 1:
+            vectors = vectors.reshape(1, -1)
+        if self.vectors.size == 0:
+            self.vectors = vectors
+        else:
+            self.vectors = np.vstack([self.vectors, vectors])
+
+    def search(self, queries: np.ndarray, k: int):
+        queries = np.asarray(queries, dtype=np.float32)
+        if queries.ndim == 1:
+            queries = queries.reshape(1, -1)
+        if self.ntotal == 0:
+            return np.empty((queries.shape[0], 0), dtype=np.float32), np.full((queries.shape[0], 0), -1, dtype=np.int64)
+
+        # Use squared L2 distances for ranking
+        diffs = self.vectors[np.newaxis, :, :] - queries[:, np.newaxis, :]
+        distances = np.sum(diffs * diffs, axis=2)
+        k = min(k, self.ntotal)
+        indices = np.argpartition(distances, k - 1, axis=1)[:, :k]
+        ordered = np.take_along_axis(distances, indices, axis=1)
+        sort_order = np.argsort(ordered, axis=1)
+        sorted_indices = np.take_along_axis(indices, sort_order, axis=1)
+        sorted_distances = np.take_along_axis(ordered, sort_order, axis=1)
+        return sorted_distances, sorted_indices
 
 
 class TextEmbedder:
@@ -76,8 +120,6 @@ class VectorStore:
     - "learning_resources": Learning resources (YouTube, GFG, Coursera, etc.)
     - "company_knowledge": Company-specific knowledge
     - "default": Default collection (backward compatibility)
-    
-    Each collection has its own FAISS index.
     """
     
     DEFAULT_COLLECTION = "default"
@@ -87,7 +129,11 @@ class VectorStore:
     def __init__(self, embedding_dim: int = 384, index_type: str = "faiss"):
         self.embedding_dim = embedding_dim
         self.index_type = index_type
+        self.faiss_available = faiss is not None and index_type == "faiss"
         self.embedder = TextEmbedder()
+        
+        if not self.faiss_available and index_type == "faiss":
+            logger.warning("FAISS not available. Falling back to numpy index for vector search.")
         
         # Multi-collection support
         self.collections: Dict[str, Dict[str, Any]] = {}
@@ -96,7 +142,7 @@ class VectorStore:
         
         logger.info(
             f"VectorStore initialized with collections support "
-            f"(dim={embedding_dim}, type={index_type})"
+            f"(dim={embedding_dim}, type={index_type}, faiss_available={self.faiss_available})"
         )
     
     # ------------------------------------------------------------------
@@ -117,20 +163,25 @@ class VectorStore:
     def doc_id_to_index(self):
         return self.collections[self.DEFAULT_COLLECTION]["doc_id_to_index"]
     
+    def _make_index(self):
+        if self.faiss_available:
+            return faiss.IndexFlatL2(self.embedding_dim)
+        return NumpyIndex(self.embedding_dim)
+    
     def _init_index(self):
-        """Re-initialize the default collection's FAISS index."""
-        self.collections[self.DEFAULT_COLLECTION]["index"] = faiss.IndexFlatL2(self.embedding_dim)
-        logger.debug("FAISS index created (default collection)")
+        """Re-initialize the default collection's index."""
+        self.collections[self.DEFAULT_COLLECTION]["index"] = self._make_index()
+        logger.debug("Vector index created (default collection)")
     
     def _create_collection(self, collection_name: str):
-        """Create a new collection with its own FAISS index."""
+        """Create a new collection with its own index."""
         if collection_name in self.collections:
             logger.warning(f"Collection '{collection_name}' already exists")
             return
         
         self.collections[collection_name] = {
             "documents": {},
-            "index": faiss.IndexFlatL2(self.embedding_dim),
+            "index": self._make_index(),
             "doc_id_to_index": {},
             "created_at": __import__("datetime").datetime.utcnow().isoformat(),
         }

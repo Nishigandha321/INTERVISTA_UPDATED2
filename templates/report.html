@@ -6,6 +6,7 @@
 <title>Interview Performance Report</title>
 <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/report.css">
+<link rel="stylesheet" href="/static/intervista-ui.css">
 <style>
   /* ── Learning Plan inline styles ── */
   .plan-concept {
@@ -142,9 +143,9 @@
       INTERVISTA
     </h2>
     <div class="nav-links">
-      <a href="/index">Home</a>
+      <a href="/">Home</a>
       <a href="/#features">Features</a>
-      <a href="/#flow">How it Works</a>
+      <!--<a href="/#flow">How it Works</a>-->
       <a href="/#contact">Contact</a>
     </div>
     <div class="user-menu">
@@ -155,8 +156,8 @@
         <div class="user-dropdown-header">
           <div class="user-name">{{ username }}</div>
         </div>
-        <a href="/profile" class="dropdown-item">Dashboard</a>
-        <a href="/logout" class="dropdown-item danger">Logout</a>
+        <a href="/profile" class="dropdown-item">View Dashboard</a>
+        <a href="/logout" class="dropdown-item danger">Log Out</a>
       </div>
     </div>
   </div>
@@ -513,7 +514,7 @@
     <input type="hidden" name="selected_round"  value="technical">
     <button type="submit" class="btn">Give Interview Again</button>
   </form>
-  <a href="/index"   class="btn outline">Back to Dashboard</a>
+  <a href="/index"   class="btn outline">Update Details</a>
   <a href="/profile" class="btn outline">View Dashboard</a>
 </div>
 

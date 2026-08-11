@@ -1210,8 +1210,14 @@ def update_skill_profile(db: Session, user_id: int, skill_data: dict):
 # PAGE ROUTES
 # ===========================================================================
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse(request, "home.html", {"request": request})
+def home(request: Request, db: Session = Depends(get_db)):
+    """Render the public landing page with the existing cookie-backed auth state."""
+    user = get_current_user(request, db)
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {"request": request, "username": user.username if user else None},
+    )
 
 @app.get("/signup", response_class=HTMLResponse)
 def signup_page(request: Request):

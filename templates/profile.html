@@ -5,22 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Learning Dashboard</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/intervista-ui.css">
 <link rel="stylesheet" href="/static/profile-dashboard.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body class="profile-dashboard">
 
-<nav class="navbar">
+<nav class="navbar dashboard-navbar">
   <div class="nav-container">
     <h2 class="logo">
       <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
       INTERVISTA
     </h2>
     <div class="nav-links">
-      <a href="/index">Home</a>
+      <a href="/">Home</a>
       <a href="/#features">Features</a>
-      <a href="/#flow">How it Works</a>
+      <!--<a href="/#flow">How it Works</a>-->
       <a href="/#contact">Contact</a>
     </div>
     <div class="user-menu">
@@ -31,26 +32,32 @@
         <div class="user-dropdown-header">
           <div class="user-name">{{ username }}</div>
         </div>
-        <a href="/profile" class="dropdown-item">Dashboard</a>
-        <a href="/logout" class="dropdown-item danger">Logout</a>
+        <a href="/profile" class="dropdown-item">View Dashboard</a>
+        <a href="/logout" class="dropdown-item danger">Log Out</a>
       </div>
     </div>
   </div>
 </nav>
 
-<header class="page-header">
-  <h1>Learning Dashboard</h1>
+<header class="page-header dashboard-page-header">
+  <div>
+    <span class="page-kicker">INTERVISTA CAREER INTELLIGENCE</span>
+    <h1>Learning Dashboard</h1>
   <p class="page-subtitle">Interview → weaknesses → report insights → follow-up</p>
+  </div>
+  <a href="/index" class="btn small-btn dashboard-cta">Start a practice session</a>
 </header>
 
 <main class="dashboard-main">
 
   <!-- 1. Profile header -->
-  <section class="dash-section" id="profile-header">
-    <h2><span class="sec-num">1</span> Profile</h2>
+  <section class="dash-section profile-overview" id="profile-header">
+    <div class="section-heading"><div><span class="section-eyebrow">YOUR PREPARATION</span><h2>Profile &amp; resume</h2></div><span class="section-caption">Keep your interview context current</span></div>
     <div class="profile-header-grid">
       <div class="profile-identity">
-        <div class="profile-name">{{ user_profile.first_name or username }} {{ user_profile.last_name or "" }}</div>
+        <div class="profile-avatar-large">{{ username[:1] | upper }}</div>
+        <div class="profile-intro"><div class="profile-name">{{ user_profile.first_name or username }} {{ user_profile.last_name or "" }}</div>
+        <p class="profile-helper">Your profile helps INTERVISTA tailor every practice session.</p>
         <div class="profile-meta-row">
           <div class="meta-pill">
             <strong>Target role</strong>
@@ -60,9 +67,10 @@
             <strong>Level</strong>
             {{ user_profile.current_designation or "Not set" }}
           </div>
-        </div>
+        </div></div>
       </div>
       <div class="profile-resume-actions">
+        <span class="resume-label">Resume</span>
         {% if user_profile.resume_file_path %}
         <a href="/{{ user_profile.resume_file_path }}" class="btn small-btn" download>Download resume</a>
         {% endif %}
@@ -76,7 +84,7 @@
 
   <!-- 2. Skill snapshot (high-level only) -->
   <section class="dash-section" id="skill-snapshot">
-    <h2><span class="sec-num">2</span> Skill Snapshot</h2>
+    <div class="section-heading"><div><span class="section-eyebrow">READINESS AT A GLANCE</span><h2>Skill snapshot</h2></div><span class="section-caption">Based on your evaluated interviews</span></div>
     {% if dashboard.has_data and dashboard.snapshot %}
     <div class="snapshot-kpi-grid">
       {% for item in dashboard.snapshot %}
@@ -94,7 +102,7 @@
 
   <!-- 3. Skill analysis + focus -->
   <section class="dash-section" id="skill-analysis">
-    <h2><span class="sec-num">3</span> Skill Analysis &amp; Focus</h2>
+    <div class="section-heading"><div><span class="section-eyebrow">PERSONALISED COACHING</span><h2>Skill analysis &amp; focus</h2></div><span class="section-caption">Prioritise what will make the biggest difference</span></div>
     {% if dashboard.has_data %}
     <div class="analysis-split">
       <div class="analysis-table-wrap">
@@ -113,7 +121,7 @@
             <tr class="tier-{{ row.tier }}">
               <td>{{ row.label }}</td>
               <td>{{ row.group }}</td>
-              <td><strong>{{ row.value }}%</strong></td>
+              <td class="analysis-score"><strong>{{ row.value }}%</strong><span class="score-meter"><span style="width:{{ row.value }}%;"></span></span></td>
               <td><span class="tier-badge tier-badge--{{ row.tier }}">{{ row.tier }}</span></td>
             </tr>
             {% endfor %}
@@ -131,6 +139,7 @@
               <span class="focus-actions-score">{{ item.score }}%</span>
             </div>
             <p class="focus-actions-text">{{ item.action }}</p>
+            <span class="focus-meter"><span style="width:{{ item.score }}%;"></span></span>
           </li>
           {% endfor %}
         </ul>
@@ -145,14 +154,14 @@
   </section>
 
   <!-- 4. Performance -->
-  <section class="dash-section" id="performance">
-    <h2><span class="sec-num">4</span> Performance Over Time</h2>
+  <section class="dash-section performance-section" id="performance">
+    <div class="section-heading"><div><span class="section-eyebrow">MOMENTUM</span><h2>Performance over time</h2></div><span class="section-caption">Track how each practice session moves your score</span></div>
     {% if timeline_by_role and timeline_by_role | length > 0 %}
     <div class="chart-toolbar">
       <label for="roleSelector">Role</label>
       <select id="roleSelector" aria-label="Select role"></select>
     </div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" aria-label="Interview performance chart">
       <canvas id="performanceChart"></canvas>
     </div>
     {% else %}
@@ -161,14 +170,14 @@
   </section>
 
   <!-- 5. Unified history -->
-  <section class="dash-section" id="learning-timeline">
-    <h2><span class="sec-num">5</span> Learning History</h2>
-    <p class="timeline-intro">Expand an interview to see the report, weak topics, RL-generated course, and follow-up path.</p>
+  <section class="dash-section learning-history" id="learning-timeline">
+    <div class="section-heading"><div><span class="section-eyebrow">PRACTICE ARCHIVE</span><h2>Learning history</h2></div><span class="section-caption">Open an entry to revisit feedback and next steps</span></div>
+    <p class="timeline-intro"></p>
 
     {% if learning_timeline %}
     {% for role_group in learning_timeline %}
     <div class="role-group">
-      <div class="role-group-title">{{ role_group.role_display }}</div>
+      <div class="role-group-title"><span>{{ role_group.role_display }}</span><span class="role-group-line"></span></div>
 
       {% for iv in role_group.interviews %}
       <details class="tl-interview {% if iv.is_simulation %}tl-interview--simulation{% endif %}">
@@ -195,7 +204,7 @@
             </div>
           </div>
           <span class="tl-score-pill {% if iv.score >= 70 %}tl-score-pill--high{% elif iv.score >= 50 %}tl-score-pill--mid{% else %}tl-score-pill--low{% endif %}">
-            {{ iv.score }}/100
+            <small>Score</small>{{ iv.score }}<em>/100</em>
           </span>
         </summary>
         <div class="tl-body">
@@ -224,9 +233,6 @@
             <div class="tl-actions">
               <a href="{{ iv.report_url }}" class="btn small-btn">View report</a>
             </div>
-            {% if iv.summary_snippet %}
-            <p class="tl-summary-text">{{ iv.summary_snippet }}</p>
-            {% endif %}
           </div>
           {% if iv.weak_topics %}
           <div class="tl-block">
