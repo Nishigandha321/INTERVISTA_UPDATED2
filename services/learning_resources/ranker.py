@@ -148,13 +148,23 @@ class SemanticRanker:
         if self.embedder:
             components["semantic"] = self._semantic_similarity(weak_concept, resource)
         else:
-            # Fallback: keyword matching if embedder unavailable
+            # Fallback: keyword matching if embedder unavailable — ranking degrades
+            # from semantic to lexical overlap (logged once per rank_resources call).
+            if not getattr(self, "_keyword_fallback_logged", False):
+                logger.warning(
+                    "SemanticRanker: embedder is None — using keyword fallback; "
+                    "ranking quality may degrade vs semantic similarity"
+                )
+                self._keyword_fallback_logged = True
             components["semantic"] = self._keyword_similarity(weak_concept, resource)
         
         # 2. Source Authority (20%)
         components["authority"] = self._get_source_authority(resource.source)
         
         # 3. Popularity (20%)
+        # NOTE: YouTube popularity uses view-count-derived scores while GFG uses a
+        # flat default (~0.7) — these signals are not directly comparable across sources.
+        # Normalizing per-source popularity is a future improvement.
         components["popularity"] = self._normalize_popularity(
             resource.popularity_score,
             resource.rating,

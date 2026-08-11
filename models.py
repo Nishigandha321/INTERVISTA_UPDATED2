@@ -156,9 +156,10 @@ class Course(Base):
 
 class Module(Base):
     """
-    Skeleton-first modules: created with title/description, content generated on-demand.
-    
-    Supports unlock logic: first module unlocked at creation, rest unlocked on quiz completion.
+    DEPRECATED — legacy skeleton-first modules (pre resource-pipeline courses).
+
+    New courses use CourseResource rows only. Kept for backward compatibility with
+    existing DB rows; do not use for new course creation.
     """
     __tablename__ = "modules"
 
@@ -183,9 +184,7 @@ class Module(Base):
 
 
 class ModuleAttempt(Base):
-    """
-    Track user quiz attempts for each module.
-    """
+    """DEPRECATED — legacy module quiz attempts. See Module."""
     __tablename__ = "module_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -199,6 +198,7 @@ class ModuleAttempt(Base):
 
 
 class Chapter(Base):
+    """DEPRECATED — unused legacy course structure."""
     __tablename__ = "chapters"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -209,6 +209,7 @@ class Chapter(Base):
 
 
 class Unit(Base):
+    """DEPRECATED — unused legacy course structure."""
     __tablename__ = "units"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -226,6 +227,7 @@ class Unit(Base):
 # QUIZ
 # =========================
 class QuizAttempt(Base):
+    """DEPRECATED — unused legacy quiz attempts."""
     __tablename__ = "quiz_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -315,9 +317,15 @@ class CourseResource(Base):
 
     # Ranking
     rank_score = Column(Float, default=0.0)             # Semantic ranking score (0.0–1.0)
+    priority_order = Column(Integer, default=0)         # Weak-concept priority (0 = highest)
 
     # LLM-generated explanation of why this resource was recommended (1–2 sentences)
     explanation = Column(Text, nullable=True)
+
+    # Progress tracking
+    opened_at = Column(DateTime, nullable=True)
+    marked_complete = Column(Boolean, default=False)
+    completed_at = Column(DateTime, nullable=True)
 
     # Full resource metadata (LearningResource.to_dict())
     resource_metadata = Column(JSON, nullable=True)

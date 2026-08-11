@@ -78,7 +78,7 @@
           Upload PDF or DOCX to get personalized interview questions
         </small>
 
-        <button type="submit" id="start-btn">Start Learning</button>
+        <button type="submit" id="start-btn">Start Practicing</button>
       </form>
     </section>
 
@@ -121,13 +121,6 @@
           </button>
         </form>
 
-        <form id="roadmap-form" method="post" action="/api/course/create">
-          <input type="hidden" id="hidden-role-roadmap" name="role">
-          <input type="hidden" id="hidden-designation" name="level">
-          <button type="submit" class="btn outline" id="btn-course">
-            Generate Course
-          </button>
-        </form>
       </div>
     </section>
 
@@ -171,13 +164,13 @@
       if (!saveResp.ok) {
         const err = await saveResp.json();
         alert("Failed to save inputs: " + (err.detail || "Unknown error"));
-        startBtn.textContent = "Start Learning";
+        startBtn.textContent = "Start Interview";
         startBtn.disabled = false;
         return;
       }
     } catch (err) {
       alert("Failed to save inputs: " + err.message);
-      startBtn.textContent = "Start Learning";
+      startBtn.textContent = "Start Interview";
       startBtn.disabled = false;
       return;
     }
@@ -199,19 +192,19 @@
         } else {
           const err = await resp.json();
           alert("Resume upload failed: " + (err.detail || "Unknown error"));
-          startBtn.textContent = "Start Learning";
+          startBtn.textContent = "Start Interview";
           startBtn.disabled = false;
           return;
         }
       } catch (err) {
         alert("Resume upload error: " + err.message);
-        startBtn.textContent = "Start Learning";
+        startBtn.textContent = "Start Interview";
         startBtn.disabled = false;
         return;
       }
     }
 
-    startBtn.textContent = "Start Learning";
+    startBtn.textContent = "Start Interview";
     startBtn.disabled = false;
 
     // Hide input section, show choices section
@@ -227,8 +220,6 @@
     document.getElementById("hidden-level").value = level;
     document.getElementById("hidden-company").value = companyName;
     document.getElementById("hidden-job-description").value = jobDescription;
-    document.getElementById("hidden-role-roadmap").value = role;
-    document.getElementById("hidden-designation").value = level;
 
   // Show choices section smoothly
     choicesSection.scrollIntoView({ behavior: "smooth" });
@@ -263,10 +254,6 @@
     syncInterviewModeFields();
     document.getElementById('btn-interview').textContent = 'Starting interview...';
     document.getElementById('btn-interview').disabled = true;
-  });
-  document.getElementById('roadmap-form').addEventListener('submit', () => {
-    document.getElementById('btn-course').textContent = 'Loading...';
-    document.getElementById('btn-course').disabled = true;
   });
   </script>
 

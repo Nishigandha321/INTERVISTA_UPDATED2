@@ -22,13 +22,11 @@ class ResourceRetrievalPipeline:
     """
     Context-aware, cache-first learning resource retrieval pipeline.
 
-    Flow for each weak concept:
-    1. Build a context-enriched search string (concept + role + level + company +
-       difficulty) and query the FAISS learning_resources collection.
-    2. If enough high-quality cache hits exist, return them immediately.
-    3. Otherwise: generate context-aware LLM search queries → fetch from YouTube
-       and GeeksForGeeks → normalise → deduplicate → semantic rank → store
-       embeddings → return results.
+    Flow for each weak concept (up to 3 concepts × top_k=3 resources):
+    1. Build a context-enriched search string and query the FAISS cache.
+    2. Reuse partial cache hits when available; fetch only enough to fill top_k.
+    3. On cache miss: generate LLM search queries → parallel fetch (YouTube + GFG)
+       → normalise → deduplicate → semantic rank → store embeddings → return.
     """
 
     def __init__(
@@ -47,6 +45,7 @@ class ResourceRetrievalPipeline:
         self.vector_store = vector_store
         self.cache_similarity_threshold = cache_similarity_threshold
         self._default_min_cache_results = min_cache_results
+        self._http_semaphore = asyncio.Semaphore(5)
 
         self.query_generator = SearchQueryGenerator(llm_service, prompt_manager)
         self.fetchers: List[BaseFetcher] = [
@@ -69,39 +68,20 @@ class ResourceRetrievalPipeline:
         self,
         weak_concepts: List[str],
         role: str = "Software Engineer",
-        top_k: int = 5,
+        top_k: int = 3,
         queries_per_concept: int = 4,
         results_per_query: int = 3,
         min_score: float = 0.0,
-        # Context fields — all optional, improve query and cache search quality
         level: str = "",
         company: str = "",
         difficulty: str = "",
-        # Per-call cache overrides
         cache_similarity_threshold: Optional[float] = None,
         min_cache_results: Optional[int] = None,
     ) -> Dict[str, List[Tuple[LearningResource, float]]]:
         """
         Context-aware, cache-first retrieval for a list of weak concepts.
 
-        Args:
-            weak_concepts:  Weak topics extracted from the interview report.
-            role:           Job role (e.g. "Senior Backend Engineer").
-            top_k:          Max resources to return per concept.
-            queries_per_concept: LLM search queries generated per concept
-                            (only used on a cache miss).
-            results_per_query: Max raw results per query per source.
-            min_score:      Minimum ranker score to include (0–1).
-            level:          Experience level (e.g. "junior", "senior").
-            company:        Target company (e.g. "Google") — sharpens queries.
-            difficulty:     Interview difficulty ("beginner"/"intermediate"/"advanced")
-                            derived from overall score.
-            cache_similarity_threshold: Override the instance default.
-            min_cache_results: Minimum cache hits required to skip fetching.
-                            Defaults to top_k.
-
-        Returns:
-            Dict mapping concept → [(LearningResource, score), ...] descending.
+        Concepts are retrieved in parallel; failures are isolated per concept.
         """
         if not weak_concepts:
             logger.warning("No concepts provided")
@@ -124,9 +104,7 @@ class ResourceRetrievalPipeline:
             f"difficulty={difficulty or 'n/a'}, cache_threshold={threshold:.2f}"
         )
 
-        ranked_result: Dict[str, List[Tuple[LearningResource, float]]] = {}
-
-        for concept in weak_concepts:
+        async def _retrieve_one(concept: str) -> Tuple[str, List[Tuple[LearningResource, float]]]:
             try:
                 ranked = await self._retrieve_concept(
                     concept=concept,
@@ -141,10 +119,13 @@ class ResourceRetrievalPipeline:
                     threshold=threshold,
                     min_hits=min_hits,
                 )
-                ranked_result[concept] = ranked
+                return concept, ranked
             except Exception as e:
                 logger.error(f"Failed to retrieve resources for '{concept}': {e}")
-                ranked_result[concept] = []
+                return concept, []
+
+        pairs = await asyncio.gather(*[_retrieve_one(c) for c in weak_concepts])
+        ranked_result = {concept: ranked for concept, ranked in pairs}
 
         total = sum(len(v) for v in ranked_result.values())
         logger.info(
@@ -171,27 +152,29 @@ class ResourceRetrievalPipeline:
         threshold: float,
         min_hits: int,
     ) -> List[Tuple[LearningResource, float]]:
-        """Cache-first retrieval for a single concept."""
+        """Cache-first retrieval for a single concept with partial cache reuse."""
 
-        # Build a context-enriched cache query so the embedding captures role/level/difficulty
         cache_query = self._build_cache_query(concept, role, level, company, difficulty)
 
-        # ── Step 1: Try cache ────────────────────────────────────────
         cached = self._search_cache(cache_query, top_k=top_k * 2, threshold=threshold)
+        cached_list: List[Tuple[LearningResource, float]] = list(cached or [])
 
-        if cached is not None and len(cached) >= min_hits:
-            logger.info(f"Cache HIT for '{concept}': {len(cached)} resources")
+        if len(cached_list) >= min_hits:
+            logger.info(f"Cache HIT for '{concept}': {len(cached_list)} resources")
             if min_score > 0:
-                cached = [(r, s) for r, s in cached if s >= min_score]
-            return cached[:top_k]
+                cached_list = [(r, s) for r, s in cached_list if s >= min_score]
+            return cached_list[:top_k]
 
-        cache_count = len(cached) if cached is not None else 0
+        slots_needed = top_k - len(cached_list)
+        cache_count = len(cached_list)
         logger.info(
-            f"Cache MISS for '{concept}': {cache_count} hits (need {min_hits}) "
-            f"— fetching externally"
+            f"Cache PARTIAL/MISS for '{concept}': {cache_count} hits (need {min_hits}) "
+            f"— fetching {slots_needed} externally"
         )
 
-        # ── Step 2: Generate context-aware LLM search queries ────────
+        if slots_needed <= 0:
+            return cached_list[:top_k]
+
         queries = await self.query_generator.generate_queries(
             concept,
             role=role,
@@ -202,39 +185,41 @@ class ResourceRetrievalPipeline:
         )
         if not queries:
             logger.warning(f"No queries generated for concept: '{concept}'")
-            return []
+            return cached_list[:top_k]
 
-        # ── Step 3: Fetch from external providers ────────────────────
         raw_by_source = await self._fetch_for_queries(queries, results_per_query)
-
-        # ── Step 4: Normalise → deduplicate ──────────────────────────
         normalized = await self._normalize_resources(raw_by_source)
         deduped = self._deduplicate_by_url(normalized)
 
-        if not deduped:
-            logger.warning(f"No resources from external providers for '{concept}'")
-            return []
+        cached_urls = {r.url.lower().strip() for r, _ in cached_list}
+        deduped = [r for r in deduped if r.url.lower().strip() not in cached_urls]
 
-        # ── Step 5: Semantic rank ────────────────────────────────────
+        if not deduped:
+            logger.warning(f"No new external resources for '{concept}'")
+            return cached_list[:top_k]
+
         if self.ranker:
-            ranked = self.ranker.rank_resources(
+            ranked_new = self.ranker.rank_resources(
                 weak_concept=concept, resources=deduped, role=role
             )
             if min_score > 0:
-                ranked = self.ranker.filter_by_threshold(ranked, min_score)
-            ranked = ranked[:top_k]
+                ranked_new = self.ranker.filter_by_threshold(ranked_new, min_score)
+            ranked_new = ranked_new[:slots_needed]
         else:
-            ranked = [(r, 0.5) for r in deduped[:top_k]]
+            ranked_new = [(r, 0.5) for r in deduped[:slots_needed]]
 
-        # ── Step 6: Store in vector store ────────────────────────────
-        if self.vector_store and ranked:
-            self._cache_resources_in_vector_store(ranked)
+        if self.vector_store and ranked_new:
+            self._cache_resources_in_vector_store(ranked_new)
+
+        combined = cached_list + ranked_new
+        combined.sort(key=lambda t: t[1], reverse=True)
+        combined = combined[:top_k]
 
         logger.info(
-            f"External fetch for '{concept}': {len(ranked)} ranked resources"
-            + (f" (top score={ranked[0][1]:.2f})" if ranked else "")
+            f"External fetch for '{concept}': {len(ranked_new)} new + {cache_count} cached"
+            + (f" (top score={combined[0][1]:.2f})" if combined else "")
         )
-        return ranked
+        return combined
 
     # ==================================================================
     # CACHE SEARCH
@@ -248,14 +233,6 @@ class ResourceRetrievalPipeline:
         company: str,
         difficulty: str,
     ) -> str:
-        """
-        Build an enriched query string for the vector store semantic search.
-
-        Including role, level, and difficulty in the embedding query makes the
-        cosine similarity reflect context, not just topic — so a "Binary Trees"
-        resource pitched at senior engineers scores higher for a senior candidate
-        than a beginner tutorial does.
-        """
         parts = [concept]
         if role:
             parts.append(role)
@@ -273,13 +250,6 @@ class ResourceRetrievalPipeline:
         top_k: int,
         threshold: float,
     ) -> Optional[List[Tuple[LearningResource, float]]]:
-        """
-        Search the learning_resources FAISS collection.
-
-        raw_similarity = 100 / (1 + L2_distance), normalised to 0–1 by /100.
-        Blends stored rank score (quality) with current similarity (relevance):
-            blended = 0.6 * stored_rank_score + 0.4 * similarity_score
-        """
         if not self.vector_store:
             return None
 
@@ -315,7 +285,6 @@ class ResourceRetrievalPipeline:
     def _resource_from_metadata(
         resource_id: str, metadata: Dict[str, Any]
     ) -> Optional[LearningResource]:
-        """Reconstruct a LearningResource from cached metadata, dropping injected keys."""
         if not metadata:
             return None
         try:
@@ -335,7 +304,6 @@ class ResourceRetrievalPipeline:
         self,
         ranked_resources: List[Tuple[LearningResource, float]],
     ) -> None:
-        """Embed and store freshly fetched resources for future cache hits."""
         if not self.vector_store:
             return
         batch = []
@@ -360,49 +328,35 @@ class ResourceRetrievalPipeline:
         level: str = "",
         difficulty: str = "",
     ) -> Dict[str, Dict[str, str]]:
-        """
-        For each concept, ask the LLM to re-rank the retrieved resources and
-        write a 1–2 sentence explanation for why each one is recommended.
-
-        The LLM receives only real resource data (titles, descriptions, sources)
-        that were retrieved from external providers.  It never invents resources,
-        URLs, or courses.
-
-        Args:
-            ranked_results: Output of retrieve_and_rank() —
-                            {concept: [(LearningResource, score), ...]}.
-            role:           Job role for personalisation context.
-            level:          Experience level.
-            difficulty:     Resource difficulty derived from interview score.
-
-        Returns:
-            {concept: {resource_id: explanation_string}}
-            Missing resource_ids mean the LLM skipped or failed for that item.
-        """
         if not self.llm_service:
             return {}
 
-        explanations: Dict[str, Dict[str, str]] = {}
-
-        for concept, resource_list in ranked_results.items():
+        async def _explain_one(
+            concept: str,
+            resource_list: List[Tuple["LearningResource", float]],
+        ) -> Tuple[str, Dict[str, str]]:
             if not resource_list:
-                explanations[concept] = {}
-                continue
-
+                return concept, {}
             try:
-                concept_explanations = await self._explain_concept_resources(
+                explanations = await self._explain_concept_resources(
                     concept=concept,
                     resource_list=resource_list,
                     role=role,
                     level=level,
                     difficulty=difficulty,
                 )
-                explanations[concept] = concept_explanations
+                return concept, explanations
             except Exception as e:
                 logger.warning(f"Explanation generation failed for '{concept}': {e}")
-                explanations[concept] = {}
+                return concept, {}
 
-        return explanations
+        pairs = await asyncio.gather(
+            *[
+                _explain_one(concept, resource_list)
+                for concept, resource_list in ranked_results.items()
+            ]
+        )
+        return dict(pairs)
 
     async def _explain_concept_resources(
         self,
@@ -412,14 +366,8 @@ class ResourceRetrievalPipeline:
         level: str,
         difficulty: str,
     ) -> Dict[str, str]:
-        """
-        Single LLM call for one concept: re-rank resources and explain each one.
-
-        Returns {resource_id: explanation}.
-        """
         import json as _json
 
-        # Build a numbered list of resources for the prompt
         resource_lines = []
         id_map: Dict[str, "LearningResource"] = {}
         for i, (resource, score) in enumerate(resource_list, start=1):
@@ -473,7 +421,6 @@ Use only the numbered ids from the list above. Do not add new resources."""
             logger.warning(f"LLM call failed for concept '{concept}': {e}")
             return {}
 
-        # Parse response
         try:
             response = response.strip()
             import re as _re
@@ -504,10 +451,6 @@ Use only the numbered ids from the list above. Do not add new resources."""
         queries_per_concept: int = 4,
         results_per_query: int = 3,
     ) -> Dict[str, List[LearningResource]]:
-        """
-        Raw retrieval without ranking or caching (kept for backward compatibility).
-        Callers that need ranking should use retrieve_and_rank().
-        """
         if not weak_concepts:
             return {}
         result = {}
@@ -535,16 +478,29 @@ Use only the numbered ids from the list above. Do not add new resources."""
         queries: List[str],
         limit_per_query: int,
     ) -> Dict[str, List[Dict[str, Any]]]:
-        raw_by_source: Dict[str, List[Dict[str, Any]]] = {}
-        for fetcher in self.fetchers:
-            results: List[Dict[str, Any]] = []
-            for query in queries:
+        async def _fetch_one(fetcher: BaseFetcher, query: str) -> Tuple[str, str, List[Dict[str, Any]]]:
+            async with self._http_semaphore:
                 try:
-                    results.extend(await fetcher.search(query, limit=limit_per_query))
+                    hits = await fetcher.search(query, limit=limit_per_query)
+                    return fetcher.source, query, hits
                 except Exception as e:
                     logger.warning(f"Fetch failed '{query}' from {fetcher.source}: {e}")
-            raw_by_source[fetcher.source] = results
-            logger.info(f"Fetched {len(results)} results from {fetcher.source}")
+                    return fetcher.source, query, []
+
+        tasks = [
+            _fetch_one(fetcher, query)
+            for fetcher in self.fetchers
+            for query in queries
+        ]
+        results = await asyncio.gather(*tasks)
+
+        raw_by_source: Dict[str, List[Dict[str, Any]]] = {}
+        for source, _query, hits in results:
+            raw_by_source.setdefault(source, []).extend(hits)
+
+        for source, items in raw_by_source.items():
+            logger.info(f"Fetched {len(items)} results from {source}")
+
         return raw_by_source
 
     async def _normalize_resources(
@@ -579,12 +535,7 @@ Use only the numbered ids from the list above. Do not add new resources."""
         logger.info(f"Deduplicated {len(resources)} → {len(deduped)} unique resources")
         return deduped
 
-    # ==================================================================
-    # EXTENSIBILITY
-    # ==================================================================
-
     def add_fetcher(self, fetcher: BaseFetcher) -> None:
-        """Register an additional resource fetcher (e.g. Coursera, edX)."""
         if any(f.source == fetcher.source for f in self.fetchers):
             logger.warning(f"Fetcher for {fetcher.source} already exists. Replacing.")
             self.fetchers = [f for f in self.fetchers if f.source != fetcher.source]

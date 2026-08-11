@@ -370,13 +370,9 @@
 </section>
 
 {% elif report.new_course %}
-<!-- Fallback: resources not yet loaded — show link -->
 <section class="card fade-in">
   <h2>📚 Personalized Learning Plan</h2>
-  <p>We've prepared curated resources for your weak areas.</p>
-  <div style="margin-top:16px;">
-    <a href="/course/{{ report.new_course.course_id }}" class="btn">View Learning Plan</a>
-  </div>
+  <p>We prepared focused recommendations for your weak areas.</p>
 </section>
 {% endif %}
 

@@ -119,6 +119,9 @@ def calculate_reward(
     )
     reward = max(-1.0, min(1.0, reward))
 
+    # TODO: optionally incorporate course-resource completion ratio into reward
+    # (e.g. fraction of CourseResource.marked_complete for the last course).
+
     logger.debug(
         f"Reward: current={curr:.1f}, previous={prev:.1f}, "
         f"score_delta={score_delta:+.3f}, weak_progress={weak_progress:+.3f}, "

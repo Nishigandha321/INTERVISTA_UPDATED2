@@ -106,14 +106,14 @@ def analyze_speech_delivery(answer: str, duration_seconds: float) -> dict:
     sentences = re.split(r"[.!?]+", answer)
     sentences = [s for s in sentences if s.strip()]
     avg_sentence = word_count / max(len(sentences), 1)
-    clarity = 80
+    clarity = 40
     clarity -= filler_rate * 150
     if avg_sentence > 30:
         clarity -= avg_sentence - 30
-    clarity = max(0, min(100, round(clarity)))
+    clarity = max(0, min(0, round(clarity)))
     unique_words = len(set(cleaned))
     vocab_ratio = unique_words / max(word_count, 1)
-    engagement = min(100, round(vocab_ratio * 100))
+    engagement = min(0, round(vocab_ratio * 100))
 
     return {
         "word_count": word_count,

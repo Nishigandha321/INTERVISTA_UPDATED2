@@ -40,7 +40,7 @@
 
 <header class="page-header">
   <h1>Learning Dashboard</h1>
-  <p class="page-subtitle">Interview → weaknesses → adaptive course → follow-up</p>
+  <p class="page-subtitle">Interview → weaknesses → report insights → follow-up</p>
 </header>
 
 <main class="dashboard-main">
@@ -171,15 +171,27 @@
       <div class="role-group-title">{{ role_group.role_display }}</div>
 
       {% for iv in role_group.interviews %}
-      <details class="tl-interview">
+      <details class="tl-interview {% if iv.is_simulation %}tl-interview--simulation{% endif %}">
         <summary>
           <span class="tl-date-badge">{{ iv.date_display }}</span>
           <div class="tl-summary-main">
             <div class="tl-summary-title">
-              {% if iv.report_url == '/oa/report' %}Mock Online Assessment{% else %}Mock interview{% endif %}
+              {% if iv.is_simulation %}
+                Full Interview Simulation
+              {% elif iv.report_url == '/oa/report' %}
+                Mock Online Assessment
+              {% else %}
+                Mock Interview
+              {% endif %}
             </div>
             <div class="tl-summary-sub">
-              {% if iv.rl_action %}Path: {{ iv.rl_action }}{% if iv.rl_difficulty %} · {{ iv.rl_difficulty }}{% endif %}{% else %}Evaluated{% endif %}
+              {% if iv.is_simulation %}
+                {{ iv.rounds | length }} Rounds Completed
+              {% elif iv.rl_action %}
+                Path: {{ iv.rl_action }}{% if iv.rl_difficulty %} · {{ iv.rl_difficulty }}{% endif %}
+              {% else %}
+                Evaluated
+              {% endif %}
             </div>
           </div>
           <span class="tl-score-pill {% if iv.score >= 70 %}tl-score-pill--high{% elif iv.score >= 50 %}tl-score-pill--mid{% else %}tl-score-pill--low{% endif %}">
@@ -187,8 +199,28 @@
           </span>
         </summary>
         <div class="tl-body">
+          {% if iv.is_simulation %}
           <div class="tl-block">
-            <h4>Report</h4>
+            <h4>Simulation Breakdown</h4>
+            <div class="tl-rounds-list">
+              {% for round in iv.rounds %}
+              <div class="tl-round-item">
+                <div class="tl-round-info">
+                  <span class="tl-round-name">{{ round.round_name }}</span>
+                  <span class="tl-round-date">{{ round.date_display }}</span>
+                </div>
+                <div class="tl-round-meta">
+                  <span class="tl-round-score">{{ round.score }}/100</span>
+                  <a href="{{ round.report_url }}" class="tl-round-link">View Round Report</a>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="tl-block">
+            <h4>Overall Report</h4>
             <div class="tl-actions">
               <a href="{{ iv.report_url }}" class="btn small-btn">View report</a>
             </div>
@@ -208,22 +240,21 @@
           {% endif %}
           {% if iv.adaptive_course %}
           <div class="tl-block">
-            <h4>Adaptive course (RL)</h4>
+            <h4>Recommended focus</h4>
             <div class="tl-course-card">
               <div class="tl-course-head">
-                <a href="{{ iv.adaptive_course.course_url }}" class="tl-course-title">{{ iv.adaptive_course.title }}</a>
+                <span class="tl-course-title">{{ iv.adaptive_course.title }}</span>
                 <span class="tl-tag tl-tag--blue">{{ iv.adaptive_course.progress_pct }}%</span>
               </div>
               <div class="progress-track">
                 <div class="progress-fill{% if iv.adaptive_course.is_complete %} progress-fill--complete{% endif %}"
                      style="width:{{ iv.adaptive_course.progress_pct }}%;"></div>
               </div>
+              {% if iv.followup_url %}
               <div class="tl-actions">
-                <a href="{{ iv.adaptive_course.course_url }}" class="btn small-btn outline-btn">Open course</a>
-                {% if iv.followup_url %}
                 <a href="{{ iv.followup_url }}" class="btn small-btn">Follow-up interview</a>
-                {% endif %}
               </div>
+              {% endif %}
             </div>
           </div>
           {% endif %}
@@ -233,26 +264,9 @@
     </div>
     {% endfor %}
 
-    {% if standalone_courses %}
-    <div class="standalone-container">
-      <h3 class="standalone-heading">Self-paced courses</h3>
-      <div class="standalone-list">
-        {% for course in standalone_courses %}
-        <div class="standalone-card">
-          <div class="standalone-card-main">
-            <span class="standalone-card-title">{{ course.title }}</span>
-            <span class="standalone-card-progress">{{ course.progress_pct }}% complete</span>
-          </div>
-          <a href="{{ course.course_url }}" class="btn small-btn">Open course</a>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
     {% else %}
     <div class="empty-state-box">
-      <p class="empty-state">No interviews yet. Start a mock interview to begin your adaptive path.</p>
+      <p class="empty-state">No interviews yet. Start a mock interview to begin your review journey.</p>
       <a href="/index" class="btn small-btn">Go to Home</a>
     </div>
     {% endif %}

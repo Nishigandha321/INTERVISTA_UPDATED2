@@ -26,7 +26,7 @@ try:
 except Exception:
     EventSourceResponse = None
     # Defer import failure until SSE endpoints are used; log a warning at runtime
-from database import Base, engine, SessionLocal
+from database import Base, SessionLocal, initialize_database
 from models import (
     User,
     InterviewAttempt,
@@ -86,7 +86,7 @@ from models import QTable, UserState
 from services.learning_resources.pipeline import ResourceRetrievalPipeline
 from services.learning_resources.ranker import SemanticRanker
 
-Base.metadata.create_all(bind=engine)
+engine = initialize_database()
 
 
 def ensure_database_schema(engine):
@@ -123,6 +123,14 @@ def ensure_database_schema(engine):
             cr_cols = {col["name"] for col in inspector.get_columns("course_resources")}
             if "explanation" not in cr_cols:
                 conn.execute(text("ALTER TABLE course_resources ADD COLUMN explanation TEXT;"))
+            if "priority_order" not in cr_cols:
+                conn.execute(text("ALTER TABLE course_resources ADD COLUMN priority_order INTEGER DEFAULT 0;"))
+            if "opened_at" not in cr_cols:
+                conn.execute(text("ALTER TABLE course_resources ADD COLUMN opened_at TIMESTAMP;"))
+            if "marked_complete" not in cr_cols:
+                conn.execute(text("ALTER TABLE course_resources ADD COLUMN marked_complete BOOLEAN DEFAULT FALSE;"))
+            if "completed_at" not in cr_cols:
+                conn.execute(text("ALTER TABLE course_resources ADD COLUMN completed_at TIMESTAMP;"))
 
 
 ensure_database_schema(engine)
@@ -695,8 +703,56 @@ def _get_recent_interview_metrics(user_id: int, db: Session, lookback: int = 5) 
     }
 
 
-def _prioritize_top_weak_topics(weak_topics: list[str], count: int = 3) -> list[str]:
-    return [str(t).strip() for t in weak_topics if str(t).strip()][:count]
+def _prioritize_top_weak_topics(
+    weak_topics: list[str],
+    count: int = 3,
+    answer_evaluations: list | None = None,
+) -> list[str]:
+    """Return top N weak topics, sorted by frequency/severity when available."""
+    topics = [str(t).strip() for t in weak_topics if str(t).strip()]
+    if not topics:
+        return []
+
+    if answer_evaluations:
+        freq: dict[str, int] = {}
+        score_sum: dict[str, float] = {}
+        score_count: dict[str, int] = {}
+        for ans in answer_evaluations:
+            if not isinstance(ans, dict):
+                continue
+            ans_score = float(ans.get("score", 50))
+            raw_weak = ans.get("weak_topics") or []
+            if isinstance(raw_weak, str):
+                raw_weak = [raw_weak]
+            for topic in raw_weak:
+                key = str(topic).strip().lower()
+                if not key:
+                    continue
+                freq[key] = freq.get(key, 0) + 1
+                score_sum[key] = score_sum.get(key, 0.0) + ans_score
+                score_count[key] = score_count.get(key, 0) + 1
+
+        if freq:
+            canonical = {t.lower(): t for t in topics}
+
+            def _sort_key(topic: str) -> tuple:
+                key = topic.lower()
+                frequency = freq.get(key, 0)
+                avg_score = score_sum.get(key, 50.0) / max(score_count.get(key, 1), 1)
+                severity = 100.0 - avg_score
+                original_idx = next(
+                    (i for i, t in enumerate(topics) if t.lower() == key),
+                    len(topics),
+                )
+                return (-frequency, -severity, original_idx)
+
+            ranked = sorted(
+                (canonical.get(k, k) for k in {t.lower() for t in topics}),
+                key=_sort_key,
+            )
+            return ranked[:count]
+
+    return topics[:count]
 
 
 
@@ -2204,21 +2260,25 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                 consecutive_action_count=action_streak,
             )
 
-            # STEP 4: Map action → difficulty (simple lookup)
-            course_difficulty = _ACTION_TO_DIFFICULTY.get(action, "medium")
+            # STEP 4: Resolve unified course difficulty (bandit + score)
+            course_difficulty = _resolve_course_difficulty(action, overall)
 
             # STEP 5: Create course with real learning resources
             new_course_id = None
             fallback_used = False
+            prioritized_topics = _prioritize_top_weak_topics(
+                weak_topics,
+                count=3,
+                answer_evaluations=content_result.get("answers"),
+            )
             try:
                 new_course_id = await create_course_from_resources(
                     user,
                     role,
                     level,
-                    weak_topics,
+                    prioritized_topics,
                     action,
                     db,
-                    difficulty=course_difficulty,
                     company=company_name,
                     interview_score=overall,
                 )
@@ -2236,10 +2296,9 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                         user,
                         role,
                         level,
-                        _prioritize_top_weak_topics(weak_topics, 2),
+                        _prioritize_top_weak_topics(weak_topics, count=2),
                         "revision",
                         db,
-                        difficulty="easy",
                         company=company_name,
                         interview_score=overall,
                     )
@@ -2714,17 +2773,31 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 # REPORT PAGE
 # ===========================================================================
 def _get_resources_by_concept(course_id: int, db: Session) -> dict:
-    """Return CourseResource rows grouped by concept for a given course."""
+    """Return CourseResource rows grouped by concept, ordered by priority then rank."""
     resources = (
         db.query(CourseResource)
         .filter(CourseResource.course_id == course_id)
-        .order_by(CourseResource.rank_score.desc())
+        .order_by(
+            CourseResource.priority_order.asc(),
+            CourseResource.rank_score.desc(),
+        )
         .all()
     )
     grouped: dict = {}
+    concept_priority: dict[str, int] = {}
     for cr in resources:
-        grouped.setdefault(cr.concept or "General", []).append(cr)
-    return grouped
+        concept = cr.concept or "General"
+        if concept not in grouped:
+            grouped[concept] = []
+            concept_priority[concept] = cr.priority_order if cr.priority_order is not None else 0
+        grouped[concept].append(cr)
+
+    return dict(
+        sorted(
+            grouped.items(),
+            key=lambda item: (concept_priority.get(item[0], 0), item[0].lower()),
+        )
+    )
 
 
 @app.get("/placement-report", response_class=HTMLResponse)
@@ -3073,10 +3146,11 @@ def _build_unified_learning_timeline(
     profile_row,
 ) -> list[dict]:
     """
-    Role → interviews → expandable adaptive course / follow-up details.
-    Courses not linked to an interview appear as standalone entries under the role.
+    Role → interviews → follow-up recommendations and weak-topic insights.
+    Historical course entries are kept only as supporting context for the interview timeline.
     """
     from urllib.parse import quote
+    from datetime import timedelta
 
     course_by_id = {c["course_id"]: c for c in course_history}
     linked_course_ids: set[int] = set()
@@ -3103,60 +3177,171 @@ def _build_unified_learning_timeline(
         reverse=True,
     )
 
-    for iv in sorted_interviews:
-        role = (iv.role or "General").strip()
+    # Grouping interviews into simulations or individual entries
+    # A simulation is a group of interviews for the same role within a 2-hour window.
+    grouped_interviews = []
+    if sorted_interviews:
+        current_group = [sorted_interviews[0]]
+        for i in range(1, len(sorted_interviews)):
+            prev_iv = sorted_interviews[i-1]
+            curr_iv = sorted_interviews[i]
+
+            # Check if they belong to the same role and are close in time
+            time_diff = abs((prev_iv.date or datetime.min) - (curr_iv.date or datetime.min))
+            if prev_iv.role == curr_iv.role and time_diff < timedelta(hours=2):
+                current_group.append(curr_iv)
+            else:
+                grouped_interviews.append(current_group)
+                current_group = [curr_iv]
+        grouped_interviews.append(current_group)
+
+    for group in grouped_interviews:
+        # All interviews in a group have the same role (due to grouping logic)
+        first_iv = group[0]
+        role = (first_iv.role or "General").strip()
         bucket = get_role_bucket(role)
-        report: dict = {}
-        try:
-            report = json.loads(iv.report_json) if iv.report_json else {}
-        except Exception:
-            report = {}
 
-        rl = report.get("rl_metrics") or {}
-        new_course_id = report.get("new_course_id") or rl.get("new_course_id")
-        adaptive_course = None
-        if new_course_id and new_course_id in course_by_id:
-            adaptive_course = _course_summary_from_entry(course_by_id[new_course_id])
-            linked_course_ids.add(int(new_course_id))
+        if len(group) > 1:
+            # This is a Full Interview Simulation
+            # We'll use the first interview's date/role as the primary info, 
+            # but we need to aggregate some info.
 
-        weak_topics = _extract_report_weak_topics(report)
-        candidate = report.get("candidate_profile") or {}
-        level = candidate.get("level") or (
-            profile_row.current_designation if profile_row else "Junior"
-        )
-        role_for_url = candidate.get("role") or role
+            # For a simulation, we might want the average score or the last score.
+            # Let's use the score of the last round (which is the first in our sorted list if we sorted desc)
+            # Wait, sorted_interviews is reverse=True (newest first).
+            # So group[0] is the most recent round.
 
-        followup_url = None
-        if adaptive_course and adaptive_course["is_complete"]:
-            followup_url = (
-                f"/interview/start?role={quote(str(role_for_url))}"
-                f"&level={quote(str(level))}"
-                f"&course_id={adaptive_course['course_id']}"
+            # Let's find the overall score for the simulation. 
+            # If it's a placement simulation, the final report might have it.
+            # For now, let's use the score of the most recent round in the group.
+
+            # We need to collect all rounds' details.
+            rounds_details = []
+            for iv in group:
+                report: dict = {}
+                try:
+                    report = json.loads(iv.report_json) if iv.report_json else {}
+                except Exception:
+                    report = {}
+
+                rl = report.get("rl_metrics") or {}
+                weak_topics = _extract_report_weak_topics(report)
+                summary = report.get("performance_summary") or ""
+                if len(summary) > 220:
+                    summary = summary[:217].rstrip() + "..."
+
+                rounds_details.append({
+                    "id": iv.id,
+                    "round_name": report.get("round_type", "Interview Round").title(),
+                    "date_display": iv.date.strftime("%b %d, %Y") if iv.date else "",
+                    "score": round(float(iv.score), 1) if iv.score is not None else 0,
+                    "weak_topics": weak_topics,
+                    "summary_snippet": summary,
+                    "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
+                })
+
+            # For the main entry
+            main_iv = group[0]
+            report: dict = {}
+            try:
+                report = json.loads(main_iv.report_json) if main_iv.report_json else {}
+            except Exception:
+                report = {}
+
+            rl = report.get("rl_metrics") or {}
+            new_course_id = report.get("new_course_id") or rl.get("new_course_id")
+            adaptive_course = None
+            if new_course_id and new_course_id in course_by_id:
+                adaptive_course = _course_summary_from_entry(course_by_id[new_course_id])
+                linked_course_ids.add(int(new_course_id))
+
+            weak_topics = _extract_report_weak_topics(report)
+            candidate = report.get("candidate_profile") or {}
+            level = candidate.get("level") or (
+                profile_row.current_designation if profile_row else "Junior"
             )
+            role_for_url = candidate.get("role") or role
 
-        summary = report.get("performance_summary") or ""
-        if len(summary) > 220:
-            summary = summary[:217].rstrip() + "..."
+            followup_url = None
+            if adaptive_course and adaptive_course["is_complete"]:
+                followup_url = (
+                    f"/interview/start?role={quote(str(role_for_url))}"
+                    f"&level={quote(str(level))}"
+                    f"&course_id={adaptive_course['course_id']}"
+                )
 
-        bucket["interviews"].append(
-            {
-                "id": iv.id,
-                "date": iv.date.strftime("%Y-%m-%d") if iv.date else "",
-                "date_display": iv.date.strftime("%b %d, %Y") if iv.date else "",
-                "score": round(float(iv.score), 1) if iv.score is not None else 0,
-                "weak_topics": weak_topics,
-                "summary_snippet": summary,
-                "rl_action": report.get("recommended_action") or rl.get("action"),
-                "rl_difficulty": rl.get("course_difficulty"),
-                "rl_topics": rl.get("course_topics") or [],
-                "rl_reward": rl.get("reward"),
-                "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
-                "adaptive_course": adaptive_course,
-                "followup_url": followup_url,
-                "level": level,
-                "role_for_url": role_for_url,
-            }
-        )
+            bucket["interviews"].append(
+                {
+                    "is_simulation": True,
+                    "date_display": main_iv.date.strftime("%b %d, %Y") if main_iv.date else "",
+                    "score": round(float(main_iv.score), 1) if main_iv.score is not None else 0,
+                    "weak_topics": weak_topics,
+                    "summary_snippet": report.get("performance_summary", "")[:220],
+                    "rl_action": report.get("recommended_action") or rl.get("action"),
+                    "rl_difficulty": rl.get("course_difficulty"),
+                    "rl_topics": rl.get("course_topics") or [],
+                    "rl_reward": rl.get("reward"),
+                    "adaptive_course": adaptive_course,
+                    "followup_url": followup_url,
+                    "level": level,
+                    "role_for_url": role_for_url,
+                    "rounds": rounds_details,
+                }
+            )
+        else:
+            # This is an individual interview
+            iv = group[0]
+            report: dict = {}
+            try:
+                report = json.loads(iv.report_json) if iv.report_json else {}
+            except Exception:
+                report = {}
+
+            rl = report.get("rl_metrics") or {}
+            new_course_id = report.get("new_course_id") or rl.get("new_course_id")
+            adaptive_course = None
+            if new_course_id and new_course_id in course_by_id:
+                adaptive_course = _course_summary_from_entry(course_by_id[new_course_id])
+                linked_course_ids.add(int(new_course_id))
+
+            weak_topics = _extract_report_weak_topics(report)
+            candidate = report.get("candidate_profile") or {}
+            level = candidate.get("level") or (
+                profile_row.current_designation if profile_row else "Junior"
+            )
+            role_for_url = candidate.get("role") or role
+
+            followup_url = None
+            if adaptive_course and adaptive_course["is_complete"]:
+                followup_url = (
+                    f"/interview/start?role={quote(str(role_for_url))}"
+                    f"&level={quote(str(level))}"
+                    f"&course_id={adaptive_course['course_id']}"
+                )
+
+            summary = report.get("performance_summary") or ""
+            if len(summary) > 220:
+                summary = summary[:217].rstrip() + "..."
+
+            bucket["interviews"].append(
+                {
+                    "is_simulation": False,
+                    "id": iv.id,
+                    "date_display": iv.date.strftime("%b %d, %Y") if iv.date else "",
+                    "score": round(float(iv.score), 1) if iv.score is not None else 0,
+                    "weak_topics": weak_topics,
+                    "summary_snippet": summary,
+                    "rl_action": report.get("recommended_action") or rl.get("action"),
+                    "rl_difficulty": rl.get("course_difficulty"),
+                    "rl_topics": rl.get("course_topics") or [],
+                    "rl_reward": rl.get("rl_reward") if "rl_reward" in report else rl.get("reward"),
+                    "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
+                    "adaptive_course": adaptive_course,
+                    "followup_url": followup_url,
+                    "level": level,
+                    "role_for_url": role_for_url,
+                }
+            )
 
     standalone_courses: list[dict] = []
     for course in course_history:
@@ -3166,11 +3351,10 @@ def _build_unified_learning_timeline(
 
     timeline = sorted(
         roles_map.values(),
-        key=lambda r: (r["interviews"][0]["date"] if r["interviews"] else ""),
+        key=lambda r: (r["interviews"][0]["date_display"] if r["interviews"] else ""),
         reverse=True,
     )
     return timeline, standalone_courses
-
 
 @app.get("/profile", response_class=HTMLResponse)
 def profile_page(request: Request, db: Session = Depends(get_db)):
@@ -3434,50 +3618,44 @@ def interview_history_redirect(request: Request):
 #
 #     return EventSourceResponse(event_generator())
 # ===========================================================================
-# SKELETON-FIRST COURSE GENERATION SYSTEM (NEW ARCHITECTURE)
+# Standalone course and module routes were removed.
+# Interview evaluations continue to generate report-based recommendations.
 # ===========================================================================
-
-@app.post("/api/course/create")
-async def create_course(
-    request: Request,
-    role: str = Form(...),
-    level: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    """
-    Create a course with real learning resources from the retrieval pipeline.
-    """
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
-    try:
-        weak_topics = [role]  # Use role as default topic for manual creation
-        course_id = await create_course_from_resources(
-            user, role, level, weak_topics, "manual", db, difficulty="medium",
-        )
-
-        if not course_id:
-            raise HTTPException(status_code=500, detail="Failed to create course")
-
-        return RedirectResponse(url=f"/course/{course_id}", status_code=303)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Course creation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to create course")
 
 
 # ===========================================================================
-# Action → difficulty mapping (replaces old _compose_course_topics)
+# Action → difficulty mapping (bandit baseline; score may shift one step)
 # ===========================================================================
+_DIFFICULTY_LEVELS = ("beginner", "intermediate", "advanced")
+
 _ACTION_TO_DIFFICULTY = {
-    "revision": "easy",
-    "easy": "easy",
-    "mixed": "medium",
-    "advanced": "hard",
+    "revision": "beginner",
+    "easy": "beginner",
+    "mixed": "intermediate",
+    "advanced": "advanced",
+    "manual": "intermediate",
 }
+
+
+def _resolve_course_difficulty(action: str, interview_score: float) -> str:
+    """
+    Single difficulty signal: bandit action sets baseline; interview score
+    may shift it one step (not override).
+    """
+    baseline = _ACTION_TO_DIFFICULTY.get(action, "intermediate")
+    idx = _DIFFICULTY_LEVELS.index(baseline)
+
+    if interview_score >= 75:
+        shift = 1
+    elif interview_score >= 45:
+        shift = 0
+    elif interview_score > 0:
+        shift = -1
+    else:
+        shift = 0
+
+    new_idx = max(0, min(len(_DIFFICULTY_LEVELS) - 1, idx + shift))
+    return _DIFFICULTY_LEVELS[new_idx]
 
 
 async def create_course_from_resources(
@@ -3487,7 +3665,6 @@ async def create_course_from_resources(
     weak_topics: list[str],
     action: str,
     db: Session,
-    difficulty: str = "medium",
     company: str = "",
     interview_score: float = 0.0,
 ) -> int | None:
@@ -3501,18 +3678,19 @@ async def create_course_from_resources(
         user: User object
         role: Job role
         level: Experience level
-        weak_topics: Weak topics from interview evaluation
+        weak_topics: Weak topics from interview evaluation (top 3 used)
         action: Bandit action (revision, easy, mixed, advanced, manual)
         db: Database session
-        difficulty: Difficulty level (easy, medium, hard)
         company: Target company name (improves query specificity)
-        interview_score: Overall interview score 0-100 (used to derive resource depth)
+        interview_score: Overall interview score 0-100 (shifts difficulty one step)
     """
-    weak_topics = [str(t).strip() for t in weak_topics if str(t).strip()]
+    weak_topics = _prioritize_top_weak_topics(weak_topics, count=3)
     weak_topics = weak_topics or ["core concepts"]
 
+    course_difficulty = _resolve_course_difficulty(action, interview_score)
+
     title = _make_adaptive_course_title(
-        db, user.id, role, action, difficulty, weak_topics
+        db, user.id, role, action, course_difficulty, weak_topics
     )
     topics_preview = ", ".join(weak_topics[:3])
     description = f"Learning resources for {role} — focused on: {topics_preview}"
@@ -3522,7 +3700,7 @@ async def create_course_from_resources(
         role=role,
         title=title,
         description=description,
-        level=difficulty,
+        level=course_difficulty,
         status="generated",
     )
     db.add(course)
@@ -3531,23 +3709,13 @@ async def create_course_from_resources(
     # Retrieve and rank resources using the pipeline
     if resource_pipeline is not None:
         try:
-            # Derive resource depth from interview score when available
-            if interview_score >= 75:
-                resource_difficulty = "advanced"
-            elif interview_score >= 45:
-                resource_difficulty = "intermediate"
-            elif interview_score > 0:
-                resource_difficulty = "beginner"
-            else:
-                resource_difficulty = difficulty  # fall back to bandit difficulty
-
             ranked_results = await resource_pipeline.retrieve_and_rank(
-                weak_concepts=weak_topics[:5],
+                weak_concepts=weak_topics[:3],
                 role=role,
-                top_k=5,
+                top_k=3,
                 level=level,
                 company=company,
-                difficulty=resource_difficulty,
+                difficulty=course_difficulty,
             )
 
             # Generate LLM explanations for retrieved resources.
@@ -3558,12 +3726,15 @@ async def create_course_from_resources(
                     ranked_results=ranked_results,
                     role=role,
                     level=level,
-                    difficulty=resource_difficulty,
+                    difficulty=course_difficulty,
                 )
             except Exception as exp_err:
                 logger.warning(f"Explanation generation skipped: {exp_err}")
 
-            for concept, ranked_list in ranked_results.items():
+            for priority_idx, concept in enumerate(weak_topics):
+                ranked_list = ranked_results.get(concept, [])
+                if not ranked_list:
+                    continue
                 concept_explanations = explanations.get(concept, {})
                 for resource, score in ranked_list:
                     cr = CourseResource(
@@ -3575,6 +3746,7 @@ async def create_course_from_resources(
                         url=resource.url,
                         source=resource.source,
                         rank_score=round(float(score), 4),
+                        priority_order=priority_idx,
                         explanation=concept_explanations.get(resource.id) or None,
                         resource_metadata=resource.to_dict(),
                     )
@@ -3592,496 +3764,6 @@ async def create_course_from_resources(
 
     db.commit()
     return course.id
-
-
-@app.get("/course/{course_id}", response_class=HTMLResponse)
-def course_page(request: Request, course_id: int, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
-    course = db.query(Course).filter(Course.id == course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-    if course.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    # Fetch learning resources grouped by concept
-    resources_by_concept = _get_resources_by_concept(course.id, db)
-
-    # Fallback: check for old module-based course (backward compat)
-    modules = []
-    if not resources_by_concept:
-        modules = (
-            db.query(Module)
-            .filter(Module.course_id == course.id)
-            .order_by(Module.order_index.asc())
-            .all()
-        )
-
-    return templates.TemplateResponse(request, "course.html", {
-            "request": request,
-            "username": user.username,
-            "course": course,
-            "resources_by_concept": resources_by_concept,
-            "modules": modules,
-        },
-    )
-
-
-@app.get("/module/{module_id}", response_class=HTMLResponse)
-def module_page(request: Request, module_id: int, db: Session = Depends(get_db)):
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
-    module = db.query(Module).filter(Module.id == module_id).first()
-    if not module:
-        raise HTTPException(status_code=404, detail="Module not found")
-
-    course = db.query(Course).filter(Course.id == module.course_id).first()
-    if not course or course.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    if not module.is_unlocked:
-        raise HTTPException(status_code=403, detail="Module not unlocked yet")
-
-    return templates.TemplateResponse(request, "module.html", {
-            "request": request,
-            "username": user.username,
-            "module_id": module.id,
-            "module_title": module.title,
-            "course_id": course.id,
-            "role": course.role,
-            "level": course.level,
-            "is_final": module.is_final,
-        },
-    )
-
-@app.get("/api/module/{module_id}")
-async def get_module(module_id: int, request: Request, db: Session = Depends(get_db)):
-
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
-    module = db.query(Module).filter(Module.id == module_id).first()
-
-    if not module:
-        raise HTTPException(status_code=404, detail="Module not found")
-
-    def _strip_practice_markers(content_text: str):
-        """Remove any embedded module practice-links marker block from stored content.
-
-        We no longer expose or render practice links separately; this helper
-        simply strips the marker block if present so the visible content is clean.
-        """
-        marker_start = "<!-- MODULE_PRACTICE_LINKS_START"
-        marker_end = "MODULE_PRACTICE_LINKS_END -->"
-        if marker_start in content_text and marker_end in content_text:
-            try:
-                clean_content = content_text.split(marker_start, 1)[0].strip()
-                return clean_content
-            except Exception:
-                return content_text
-        return content_text
-
-    # Check if module is unlocked
-    if not module.is_unlocked:
-        raise HTTPException(status_code=403, detail="Module locked")
-
-    # ✅ RETURN CACHED CONTENT (strip any historical practice-link markers)
-    if module.content:
-        logger.info("Using cached module")
-        content_text = _strip_practice_markers(module.content)
-        return {
-            "module_id": module.id,
-            "module_title": module.title,
-            "content_markdown": content_text,
-            "quiz": module.quiz if isinstance(module.quiz, list) else [],
-        }
-
-    course = db.query(Course).filter(Course.id == module.course_id).first()
-
-
-    prompt = prompt_manager.get_prompt(
-        "course_module_detail",
-        skill=course.role,
-        module=module.title,
-        level=course.level,
-        is_final=module.is_final,
-        previous_modules=""
-    )
-
-    raw = await llm_service.invoke(prompt)
-
-    try:
-        module_json = extract_json(raw)
-    except Exception as e:
-        # Log parsing issue and attempt a tolerant fallback instead of failing hard.
-        logger.warning(f"Module parse error for {module_id}: {str(e)}")
-        logger.debug(f"Raw LLM response (for debugging): {repr(raw)}")
-
-        # Fallback: try a loose regex-based extraction and a relaxed json.loads
-        module_json = {}
-        try:
-            m = re.search(r"\{.*\}", raw, re.DOTALL)
-            if m:
-                candidate = m.group(0)
-                # sanitize trailing commas
-                candidate = re.sub(r',\s*}', '}', candidate)
-                candidate = re.sub(r',\s*]', ']', candidate)
-                module_json = json.loads(candidate)
-        except Exception as e2:
-            logger.warning(f"Fallback JSON parse also failed for module {module_id}: {e2}")
-            module_json = {}
-
-    raw_content = module_json.get("content_markdown", "") or "Detailed module content could not be retrieved. Please refresh the module."
-    raw_content = _strip_practice_markers(raw_content)
-    module.content = raw_content
-    quiz_data = module_json.get("quiz", [])
-    if isinstance(quiz_data, list) and len(quiz_data) == 3:
-        valid = True
-        for q in quiz_data:
-            if not isinstance(q, dict):
-                valid = False
-                break
-            options = q.get("options", [])
-            answer = (q.get("answer") or "").upper()
-            if not isinstance(options, list) or len(options) != 4 or answer not in ["A", "B", "C", "D"]:
-                valid = False
-                break
-        if not valid:
-            quiz_data = []
-    else:
-        quiz_data = []
-    module.quiz = quiz_data
-
-    # We no longer persist or return practice/external links for modules.
-    # Ensure stored content remains clean and return only content + quiz.
-    module.content = raw_content
-    db.commit()
-    logger.info("Module generated (links removed from flow)")
-
-    return {
-        "module_id": module.id,
-        "module_title": module.title,
-        "content_markdown": raw_content,
-        "quiz": module.quiz,
-    }
-
-@app.post("/api/module/{module_id}/submit")
-async def submit_quiz(
-    module_id: int,
-    request: Request,
-    payload: dict = Body(...),
-    db: Session = Depends(get_db)
-):
-    """
-    Submit quiz answers for a module.
-    """
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-
-    try:
-        # Fetch module
-        module = db.query(Module).filter(Module.id == module_id).first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-
-        # Check authorization
-        course = db.query(Course).filter(Course.id == module.course_id).first()
-        if course.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-
-        # Ensure quiz is loaded
-        if not module.quiz or not isinstance(module.quiz, list) or len(module.quiz) != 3:
-            raise HTTPException(status_code=400, detail="Module has no valid quiz")
-
-        user_answers = payload.get("answers", [])
-        if not isinstance(user_answers, list) or len(user_answers) != 3:
-            raise HTTPException(status_code=400, detail="Must provide exactly 3 answers")
-
-        # Score the quiz
-        score = 0
-        for user_ans, quiz_item in zip(user_answers, module.quiz):
-            correct_ans = (quiz_item.get("answer") or "").upper()
-            if isinstance(user_ans, str) and user_ans.upper() == correct_ans:
-                score += 1
-
-        passed = score >= 2  # At least 2 out of 3 correct
-        # Store or update attempt
-        attempt = (
-            db.query(ModuleAttempt)
-            .filter(
-                ModuleAttempt.user_id == user.id,
-                ModuleAttempt.module_id == module_id
-            )
-            .order_by(ModuleAttempt.created_at.desc())
-            .first()
-        )
-        attempt_count = 1
-        if attempt:
-            existing_payload = attempt.answers if isinstance(attempt.answers, dict) else {}
-            try:
-                previous_count = int(existing_payload.get("attempt_count", 1))
-            except Exception:
-                previous_count = 1
-            attempt_count = previous_count + 1
-            attempt.score = score
-            attempt.total_questions = 3
-            attempt.answers = {
-                "answers": user_answers,
-                "is_passed": passed,
-                "attempt_count": attempt_count,
-            }
-        else:
-            attempt = ModuleAttempt(
-                user_id=user.id,
-                module_id=module_id,
-                score=score,
-                total_questions=3,
-                answers={
-                    "answers": user_answers,
-                    "is_passed": passed,
-                    "attempt_count": attempt_count,
-                }
-            )
-            db.add(attempt)
-        logger.info(
-            "Module attempt persisted user_id=%s module_id=%s score=%s passed=%s attempts=%s",
-            user.id,
-            module_id,
-            score,
-            passed,
-            attempt_count,
-        )
-
-        next_module_id = None
-        # Mark module as completed and unlock next module if passed
-        if passed:
-            module.is_completed = True
-            next_module = db.query(Module).filter(
-                Module.course_id == module.course_id,
-                Module.order_index == module.order_index + 1
-            ).first()
-            if next_module:
-                next_module.is_unlocked = True
-                next_module_id = next_module.id
-                logger.info("Next module unlocked user_id=%s module_id=%s", user.id, next_module_id)
-
-        db.commit()
-
-        logger.info("Quiz submitted")
-
-        return {
-            "score": score,
-            "passed": passed,
-            "is_final": module.is_final,
-            "next_module_id": next_module_id,
-            "role": course.role,
-            "level": course.level,
-            "course_id": course.id
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Quiz submission failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Quiz submission failed: {str(e)}")
-
-
-@app.get("/api/course/{course_id}/status")
-async def get_course_status(
-    course_id: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    Get course completion status.
-    
-    - Check if all modules completed
-    - Return: modules status, interview_unlocked flag
-    """
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-    
-    try:
-        # Fetch course
-        course = db.query(Course).filter(Course.id == course_id).first()
-        if not course:
-            raise HTTPException(status_code=404, detail="Course not found")
-        
-        # Check authorization
-        if course.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-        
-        # Get all modules
-        modules = db.query(Module).filter(Module.course_id == course_id).order_by(Module.order_index).all()
-        
-        module_status = []
-        all_completed = True
-        for mod in modules:
-            # Get best attempt score for this module
-            best_attempt = db.query(ModuleAttempt).filter(
-                ModuleAttempt.user_id == user.id,
-                ModuleAttempt.module_id == mod.id
-            ).order_by(ModuleAttempt.score.desc()).first()
-            
-            module_status.append({
-                "id": mod.id,
-                "title": mod.title,
-                "order_index": mod.order_index,
-                "is_unlocked": mod.is_unlocked,
-                "is_completed": mod.is_completed,
-                "best_score": best_attempt.score if best_attempt else None,
-                "best_percentage": int((best_attempt.score / best_attempt.total_questions) * 100) if best_attempt else None
-            })
-            
-            if not mod.is_completed:
-                all_completed = False
-        
-        return {
-            "course_id": course_id,
-            "title": course.title,
-            "role": course.role,
-            "level": course.level,
-            "modules": module_status,
-            "all_completed": all_completed,
-            "interview_unlocked": all_completed  # Unlock interview after all modules
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Course status check failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Course status check failed: {str(e)}")
-
-
-async def generate_final_interview(
-    user_id: int,
-    course_id: int,
-    db: Session
-) -> dict:
-    """
-    Generate a final interview session after course completion.
-    
-    Uses:
-    - Course role and level
-    - User's resume
-    - Weak topics (modules with low scores)
-    
-    Returns:
-    - interview_session_id
-    - initial questions
-    """
-    try:
-        # Fetch course and user info
-        course = db.query(Course).filter(Course.id == course_id).first()
-        if not course:
-            raise ValueError("Course not found")
-        
-        user_profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-        
-        # Identify weak topics (modules with score < 70%)
-        modules = db.query(Module).filter(Module.course_id == course_id).all()
-        weak_topics = []
-        
-        for mod in modules:
-            best_attempt = db.query(ModuleAttempt).filter(
-                ModuleAttempt.user_id == user_id,
-                ModuleAttempt.module_id == mod.id
-            ).order_by(ModuleAttempt.score.desc()).first()
-            
-            if best_attempt:
-                percentage = (best_attempt.score / best_attempt.total_questions) * 100
-                if percentage < 70:
-                    weak_topics.append(mod.title)
-        
-        # Create interview session
-        session = InterviewSession(
-            user_id=user_id,
-            role=course.role,
-            level=course.level,
-            status="active"
-        )
-        db.add(session)
-        db.flush()
-        
-        # Generate initial questions using interview chain
-        resume_text = user_profile.resume_file_path if user_profile else ""
-        
-        initial_questions = await question_chain.invoke({
-            "role": course.role,
-            "level": course.level,
-            "count": 5,
-            "resume_text": resume_text,
-            "previous_questions": [],
-            "used_categories": []
-        })
-        
-        db.commit()
-        
-        return {
-            "interview_session_id": session.id,
-            "role": course.role,
-            "level": course.level,
-            "weak_topics": weak_topics,
-            "status": "started"
-        }
-    
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Final interview generation failed: {str(e)}")
-        raise
-
-
-@app.post("/api/course/{course_id}/start-interview")
-async def start_final_interview(
-    course_id: int,
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    Trigger final interview generation after course completion.
-    
-    - Check all modules completed
-    - Generate interview session
-    - Return session ID
-    """
-    user = get_current_user(request, db)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not logged in")
-    
-    try:
-        # Verify course exists and belongs to user
-        course = db.query(Course).filter(
-            Course.id == course_id,
-            Course.user_id == user.id
-        ).first()
-        if not course:
-            raise HTTPException(status_code=404, detail="Course not found")
-        
-        # Check if all modules completed
-        modules = db.query(Module).filter(Module.course_id == course_id).all()
-        all_completed = all(mod.is_completed for mod in modules)
-        
-        if not all_completed:
-            raise HTTPException(status_code=400, detail="Not all modules completed")
-        
-        # Generate final interview
-        interview_data = await generate_final_interview(user.id, course_id, db)
-        
-        return interview_data
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Interview start failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Interview start failed: {str(e)}")
 
 
 # ===========================================================================
