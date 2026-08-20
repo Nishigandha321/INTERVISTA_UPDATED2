@@ -158,9 +158,11 @@ Generate EXACTLY 10 multiple-choice questions with this distribution:
 - 1 Computer Networks
 - 1 DSA (data structures & algorithms)
 
+Keep each question to 20 words or fewer, each option to 10 words or fewer, and each explanation to 15 words or fewer.
+
 Each question MUST have exactly four options (A, B, C, D) and one correct answer.
 
-Return ONLY valid JSON:
+Start the answer immediately with the JSON object. Do not think aloud. Return exactly one JSON object with exactly this top-level structure. Do not return markdown, comments, prose, or code fences:
 {{
   "questions": [
     {{
@@ -177,11 +179,12 @@ Return ONLY valid JSON:
 }}
 
 Rules:
+- Each question must contain exactly these fields and no additional fields
 - correct_answer must be exactly one of: A, B, C, or D
-- topic must be one of: Aptitude, OOPS, C++, SQL, DBMS, Operating Systems, Computer Networks, DSA
+- topic must exactly match one of: Aptitude, OOPS, C++, SQL, DBMS, Operating Systems, Computer Networks, DSA
 - All 10 questions must be unique and non-trivial
 - Options must be plausible; only one correct answer per question
-- STRICT: Return JSON only. No markdown."""
+- Return JSON only."""
         
         self._register(
             "oa_generate_prompt",

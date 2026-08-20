@@ -423,6 +423,9 @@
   {% macro score_bar(label, value) %}
   <div class="analysis-block">
     <strong>{{ label }}</strong>
+    {% if value is none %}
+    <span class="score-bar-value">Evaluation unavailable</span>
+    {% else %}
     <div class="score-bar-wrap">
       <div class="score-bar">
         <div class="score-bar-fill"
@@ -432,6 +435,7 @@
       </div>
       <span class="score-bar-value">{{ value | default(0) }}</span>
     </div>
+    {% endif %}
   </div>
   {% endmacro %}
 
@@ -453,8 +457,8 @@
     <summary>
       <span class="question-title">Q{{ loop.index }}. {{ ans.question }}</span>
       <span class="score-pill
-        {% if ans.score >= 70 %}green{% elif ans.score >= 40 %}yellow{% else %}red{% endif %}">
-        {{ ans.score }}/100
+        {% if ans.evaluation_available is defined and not ans.evaluation_available %}yellow{% elif ans.score >= 70 %}green{% elif ans.score >= 40 %}yellow{% else %}red{% endif %}">
+        {% if ans.evaluation_available is not defined or ans.evaluation_available %}{{ ans.score }}/100{% else %}Evaluation unavailable{% endif %}
       </span>
     </summary>
 
@@ -465,24 +469,31 @@
         <div class="transcript-box">{{ ans.transcript }}</div>
       </div>
 
-      {% if ans.strengths %}
+      {% if (ans.evaluation_available is not defined or ans.evaluation_available) and ans.strengths %}
       <div class="answer-section">
         <strong class="strength">Strengths</strong>
         <ul>{% for s in ans.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
       </div>
       {% endif %}
 
-      {% if ans.weaknesses %}
+      {% if (ans.evaluation_available is not defined or ans.evaluation_available) and ans.weaknesses %}
       <div class="answer-section">
         <strong class="weakness">Areas to Improve</strong>
         <ul>{% for w in ans.weaknesses %}<li>{{ w }}</li>{% endfor %}</ul>
       </div>
       {% endif %}
 
-      {% if ans.ideal_answer %}
+      {% if (ans.evaluation_available is not defined or ans.evaluation_available) and ans.ideal_answer %}
       <div class="answer-section">
         <strong class="ideal">Ideal Answer</strong>
         <div class="ideal-box">{{ ans.ideal_answer }}</div>
+      </div>
+      {% endif %}
+
+      {% if ans.evaluation_available is defined and not ans.evaluation_available %}
+      <div class="answer-section">
+        <strong>Evaluation</strong>
+        <div class="transcript-box">Evaluation unavailable for this answer. Voice metrics are still shown below.</div>
       </div>
       {% endif %}
 

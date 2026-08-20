@@ -158,6 +158,7 @@ oa_chain = OnlineAssessmentChain(llm_service, prompt_manager, retriever)
 TECHNICAL_QUESTION_COUNT = 5
 OA_QUESTION_COUNT = 10
 HR_QUESTION_COUNT = 5
+EVALUATION_TIMEOUT_SECONDS = 30
 
 def categorize_weak_topics(weak_topics: list[str]) -> dict[str, list[str]]:
 
@@ -402,28 +403,50 @@ def _strip_oa_question_for_client(question: dict, index: int) -> dict:
 
 
 def _validate_oa_questions(questions: list) -> list:
+    allowed_topics = {
+        "Aptitude", "OOPS", "C++", "SQL", "DBMS", "Operating Systems",
+        "Computer Networks", "DSA",
+    }
+    required_fields = {
+        "question", "option_a", "option_b", "option_c", "option_d",
+        "correct_answer", "explanation", "topic",
+    }
     if not isinstance(questions, list) or len(questions) != OA_QUESTION_COUNT:
         raise ValueError(f"Expected {OA_QUESTION_COUNT} questions")
     normalized = []
     for q in questions:
         if not isinstance(q, dict):
             raise ValueError("Invalid question format")
-        correct = _normalize_oa_answer(q.get("correct_answer"))
-        if not correct:
-            raise ValueError("Missing correct_answer")
-        for key in ("question", "option_a", "option_b", "option_c", "option_d", "explanation"):
-            if not str(q.get(key, "")).strip():
-                raise ValueError(f"Missing field: {key}")
+        if set(q) != required_fields:
+            raise ValueError("Question contains incorrect fields")
+        if q["correct_answer"] not in {"A", "B", "C", "D"}:
+            raise ValueError("correct_answer must be A, B, C, or D")
+        if q["topic"] not in allowed_topics:
+            raise ValueError(f"Invalid topic: {q['topic']}")
+        for key in ("question", "option_a", "option_b", "option_c", "option_d", "explanation", "topic"):
+            if not isinstance(q[key], str) or not q[key].strip():
+                raise ValueError(f"Missing or invalid field: {key}")
+        if len(q["question"].split()) > 20:
+            raise ValueError("Question exceeds 20 words")
+        if any(len(q[key].split()) > 10 for key in ("option_a", "option_b", "option_c", "option_d")):
+            raise ValueError("Option exceeds 10 words")
+        if len(q["explanation"].split()) > 15:
+            raise ValueError("Explanation exceeds 15 words")
         normalized.append({
             "question": str(q["question"]).strip(),
             "option_a": str(q["option_a"]).strip(),
             "option_b": str(q["option_b"]).strip(),
             "option_c": str(q["option_c"]).strip(),
             "option_d": str(q["option_d"]).strip(),
-            "correct_answer": correct,
+            "correct_answer": q["correct_answer"],
             "explanation": str(q["explanation"]).strip(),
-            "topic": str(q.get("topic", "General")).strip(),
+            "topic": q["topic"].strip(),
         })
+    expected_topics = ["Aptitude"] * 2 + ["OOPS", "C++", "SQL"] + ["DBMS"] * 2 + [
+        "Operating Systems", "Computer Networks", "DSA"
+    ]
+    if sorted(q["topic"] for q in normalized) != sorted(expected_topics):
+        raise ValueError("Invalid topic distribution")
     return normalized
 
 
@@ -720,7 +743,12 @@ def _prioritize_top_weak_topics(
         for ans in answer_evaluations:
             if not isinstance(ans, dict):
                 continue
-            ans_score = float(ans.get("score", 50))
+            if not ans.get("evaluation_available", True) or ans.get("score") is None:
+                continue
+            try:
+                ans_score = float(ans["score"])
+            except (TypeError, ValueError):
+                continue
             raw_weak = ans.get("weak_topics") or []
             if isinstance(raw_weak, str):
                 raw_weak = [raw_weak]
@@ -826,16 +854,10 @@ async def evaluate_content(
     job_description: str = "",
     interview_type: str = "technical",
 ) -> dict:
-    answers = []
-    weak_topics = []
-
-    per_answer_dimensions: list[dict] = []
-
-    for qa in questions_answers:
+    async def evaluate_one(qa: dict) -> tuple[dict, dict | None, list[str]]:
         question = qa.get("question", "")
         answer = normalize_transcript(qa.get("answer", ""))
         heuristics = score_answer_structure(answer, question)
-
         eval_payload = {
             "role": role,
             "level": level,
@@ -844,7 +866,6 @@ async def evaluate_content(
             "company_name": company_name or "N/A",
             "job_description": job_description or "N/A",
         }
-
         if interview_type == "hr":
             eval_payload["instruction_override"] = (
                 "Evaluate this HR interview response. Assess: Communication, Confidence, Clarity, "
@@ -852,105 +873,96 @@ async def evaluate_content(
                 "and Cultural fit. Provide a score and specific strengths/weaknesses related to these soft skills."
             )
 
-        result = await evaluation_chain.invoke(eval_payload)
+        def unavailable() -> tuple[dict, None, list[str]]:
+            return {
+                "score": None,
+                "evaluation_available": False,
+                "strengths": [],
+                "weaknesses": [],
+                "ideal_answer": "",
+                "weak_topics": [],
+                "dimension_scores": {},
+                "_rl_metrics": {},
+            }, None, []
 
-        parsed = {}
         try:
+            result = await asyncio.wait_for(
+                evaluation_chain.invoke(eval_payload, use_rag=False),
+                timeout=EVALUATION_TIMEOUT_SECONDS,
+            )
+            if result.status != "success":
+                raise ValueError(result.metadata.get("error", "evaluation failed"))
             parsed = safe_json_loads(result.output) or {}
-            if not isinstance(parsed, dict):
-                parsed = {}
-        except Exception:
-            parsed = {}
+            if not isinstance(parsed, dict) or "score" not in parsed:
+                raise ValueError("evaluation JSON missing score")
+        except Exception as exc:
+            logger.warning("Interview answer evaluation unavailable: %s", exc)
+            return unavailable()
 
-        # Validate and extract score
-        score = parsed.get("score", 0)
         try:
-            score = float(score) if score else 0
+            score = max(0, min(100, float(parsed.get("score"))))
         except (TypeError, ValueError):
-            score = 0
-        score = max(0, min(100, score))
-
-        # Validate and extract lists
+            logger.warning("Interview answer evaluation unavailable: invalid score")
+            return unavailable()
         answer_normalized = str(answer or "").strip().lower()
         if answer_normalized in ["", "(skipped)", "(no response)"]:
             strengths = ["No answer provided."]
         else:
             strengths = parsed.get("strengths", ["Answer attempted."])
-            if not isinstance(strengths, list):
-                strengths = ["Answer attempted."]
-            strengths = [str(s).strip() for s in strengths if s][:3]
-            if not strengths:
-                strengths = ["Answer attempted."]
-
+            strengths = strengths if isinstance(strengths, list) else ["Answer attempted."]
+            strengths = [str(s).strip() for s in strengths if s][:3] or ["Answer attempted."]
         weaknesses = parsed.get("weaknesses", ["Needs improvement."])
-        if not isinstance(weaknesses, list):
-            weaknesses = ["Needs improvement."]
-        weaknesses = [str(w).strip() for w in weaknesses if w][:3]
-        if not weaknesses:
-            weaknesses = ["Needs improvement."]
-
-        # Validate ideal_answer
+        weaknesses = weaknesses if isinstance(weaknesses, list) else ["Needs improvement."]
+        weaknesses = [str(w).strip() for w in weaknesses if w][:3] or ["Needs improvement."]
         ideal_answer = parsed.get("ideal_answer", "Ideal answer unavailable.")
-        if not isinstance(ideal_answer, str):
-            ideal_answer = str(ideal_answer) if ideal_answer else "Ideal answer unavailable."
-
-        # Validate weak_topics - MUST be list
+        ideal_answer = str(ideal_answer) if ideal_answer else "Ideal answer unavailable."
         weak_topics_raw = parsed.get("weak_topics", [])
         if isinstance(weak_topics_raw, str):
             weak_topics_raw = [weak_topics_raw]
         if not isinstance(weak_topics_raw, list):
             weak_topics_raw = []
-        weak_topics_list = [str(t).strip().lower() for t in weak_topics_raw if t]
-        weak_topics_list = list(set(weak_topics_list))[:5]
-
-        dimension_scores = {
-            "relevance": blend_dimension_score(
-                parsed.get("relevance_score"), heuristics["relevance"]
-            ),
-            "explanation_depth": blend_dimension_score(
-                parsed.get("explanation_depth_score"), heuristics["explanation_depth"]
-            ),
-            "star_method": blend_dimension_score(
-                parsed.get("star_method_score"), heuristics["star_method"]
-            ),
-            "structured_thinking": blend_dimension_score(
-                parsed.get("structured_thinking_score"), heuristics["structured_thinking"]
-            ),
-            "problem_solving": blend_dimension_score(
-                parsed.get("problem_solving_score"), heuristics["problem_solving"]
-            ),
+        weak_topics = list({str(t).strip().lower() for t in weak_topics_raw if t})[:5]
+        dimensions = {
+            "relevance": blend_dimension_score(parsed.get("relevance_score"), heuristics["relevance"]),
+            "explanation_depth": blend_dimension_score(parsed.get("explanation_depth_score"), heuristics["explanation_depth"]),
+            "star_method": blend_dimension_score(parsed.get("star_method_score"), heuristics["star_method"]),
+            "structured_thinking": blend_dimension_score(parsed.get("structured_thinking_score"), heuristics["structured_thinking"]),
+            "problem_solving": blend_dimension_score(parsed.get("problem_solving_score"), heuristics["problem_solving"]),
         }
-        per_answer_dimensions.append(dimension_scores)
-        
-        # ============================================================
-        # RL: EXTRACT CKFS METRICS (NEW)
-        # ============================================================
-        rl_metrics = {
-            "C": max(0.0, min(1.0, float(parsed.get("C", 0.0)))),
-            "K": max(0.0, min(1.0, float(parsed.get("K", 0.0)))),
-            "F": max(0.0, min(1.0, float(parsed.get("F", 0.0)))),
-            "S": max(0.0, min(1.0, float(parsed.get("S", 0.0))))
-        }
-        
-        item = {
+        try:
+            rl_metrics = {
+                key: max(0.0, min(1.0, float(parsed.get(key, 0.0))))
+                for key in ("C", "K", "F", "S")
+            }
+        except (TypeError, ValueError):
+            logger.warning("Interview answer evaluation unavailable: invalid CKFS metrics")
+            return unavailable()
+        return {
             "score": score,
+            "evaluation_available": True,
             "strengths": strengths,
             "weaknesses": weaknesses,
             "ideal_answer": ideal_answer,
-            "weak_topics": weak_topics_list,
-            "dimension_scores": dimension_scores,
-            "_rl_metrics": rl_metrics,  # Internal use only, not sent to frontend
-        }
-        
-        weak_topics.extend(weak_topics_list)
-        answers.append(item)
+            "weak_topics": weak_topics,
+            "dimension_scores": dimensions,
+            "_rl_metrics": rl_metrics,
+        }, dimensions, weak_topics
+
+    evaluated = await asyncio.gather(*(evaluate_one(qa) for qa in questions_answers))
+    answers = [item[0] for item in evaluated]
+    weak_topics = []
+    per_answer_dimensions = []
+    for item, dimensions, topics in evaluated:
+        if dimensions is not None:
+            per_answer_dimensions.append(dimensions)
+        weak_topics.extend(topics)
 
     # Deduplicate and clean weak_topics
     weak_topics_final = list(set([t.strip().lower() for t in weak_topics if t]))
     weak_topics_final = [t for t in weak_topics_final if t][:10]
 
-    scores = [a["score"] for a in answers] if answers else [0]
-    avg_score = sum(scores) / len(scores) if scores else 0
+    scores = [a["score"] for a in answers if a.get("evaluation_available")]
+    avg_score = sum(scores) / len(scores) if scores else None
     dim_agg = aggregate_dimension_scores(per_answer_dimensions)
 
     return {
@@ -958,18 +970,18 @@ async def evaluate_content(
         "weak_topics": weak_topics_final,
         "overall_feedback": "",
         "aggregate": {
-            "technical_score": round(avg_score),
-            "communication_score": round(avg_score * 0.9),
-            "overall_score": round(avg_score),
-            "relevance_score": dim_agg.get("relevance", round(avg_score)),
-            "depth_score": dim_agg.get("explanation_depth", round(avg_score * 0.9)),
-            "star_method_score": dim_agg.get("star_method", round(avg_score * 0.85)),
+            "technical_score": round(avg_score) if avg_score is not None else None,
+            "communication_score": round(avg_score * 0.9) if avg_score is not None else None,
+            "overall_score": round(avg_score) if avg_score is not None else None,
+            "relevance_score": dim_agg.get("relevance", round(avg_score)) if avg_score is not None else None,
+            "depth_score": dim_agg.get("explanation_depth", round(avg_score * 0.9)) if avg_score is not None else None,
+            "star_method_score": dim_agg.get("star_method", round(avg_score * 0.85)) if avg_score is not None else None,
             "structured_thinking_score": dim_agg.get(
                 "structured_thinking", round(avg_score * 0.9)
-            ),
+            ) if avg_score is not None else None,
             "problem_solving_score": dim_agg.get(
                 "problem_solving", round(avg_score * 0.88)
-            ),
+            ) if avg_score is not None else None,
         },
     }
 
@@ -1252,7 +1264,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     # Ensure a profile row exists for this user.
     get_or_create_user_profile(db, user)
 
-    resp = RedirectResponse("/index", status_code=303)
+    # The preparation profile is the first authenticated screen.  It keeps the
+    # interview context in one place before the user starts a practice session.
+    resp = RedirectResponse("/profile", status_code=303)
     resp.set_cookie(key="user", value=username, httponly=True)
     return resp
 
@@ -1313,6 +1327,40 @@ def index(request: Request, db: Session = Depends(get_db)):
 @app.get("/progress/")
 def progress_redirect(request: Request):
     """Legacy progress page removed — send users to the profile dashboard."""
+    return RedirectResponse("/profile", status_code=303)
+
+
+@app.post("/profile")
+async def update_profile(
+    request: Request,
+    role: str = Form(""),
+    level: str = Form(""),
+    company_name: str = Form(""),
+    job_description: str = Form(""),
+    resume: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+):
+    """Save the preparation profile without changing interview behaviour."""
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    _save_interview_profile_fields(
+        db, user, role=role, level=level,
+        company_name=company_name, job_description=job_description,
+    )
+    if resume and resume.filename:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        safe_name = Path(resume.filename).name
+        file_location = os.path.join(UPLOAD_DIR, f"user_{user.id}_{int(time.time())}_{safe_name}")
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(resume.file, buffer)
+        profile = get_or_create_user_profile(db, user)
+        profile.resume_file_path = file_location
+        profile.updated_at = datetime.utcnow()
+        db.add(profile)
+        db.commit()
+
     return RedirectResponse("/profile", status_code=303)
 
 # ===========================================================================
@@ -1710,6 +1758,30 @@ def oa_report_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/oa/report/{interview_id}", response_class=HTMLResponse)
+def saved_oa_report_page(request: Request, interview_id: int, db: Session = Depends(get_db)):
+    """Open a specific saved individual online-assessment report."""
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+    interview = db.query(Interview).filter(
+        Interview.id == interview_id, Interview.user_id == user.id
+    ).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        report = json.loads(interview.report_json or "{}")
+    except Exception:
+        report = {}
+    if report.get("round_type") != "online_assessment":
+        raise HTTPException(status_code=404, detail="Online assessment report not found")
+    return templates.TemplateResponse(request, "oa_report.html", {
+        "request": request, "username": user.username, "report": report,
+        "role": interview.role, "level": report.get("level", ""),
+        "interview_mode": "individual_practice",
+    })
+
+
 # ===========================================================================
 # ONLINE ASSESSMENT API
 # ===========================================================================
@@ -1738,7 +1810,11 @@ async def api_oa_generate(request: Request, db: Session = Depends(get_db)):
     role = session.get("role", "Software Engineer")
     level = session.get("level", "Junior")
 
-    result = await oa_chain.invoke({"role": role, "level": level})
+    try:
+        result = await oa_chain.invoke({"role": role, "level": level})
+    except Exception as exc:
+        logger.error("OA validation failure: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to generate valid OA questions") from exc
     if result.status != "success":
         raise HTTPException(status_code=500, detail="Failed to generate OA questions")
 
@@ -1746,7 +1822,10 @@ async def api_oa_generate(request: Request, db: Session = Depends(get_db)):
         parsed = extract_json(result.output)
         questions = _validate_oa_questions(parsed.get("questions", []))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Invalid OA question set: {exc}")
+        logger.error("OA validation failure: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to generate valid OA questions") from exc
+
+    logger.info("OA JSON validation successful")
 
     session["oa_questions"] = questions
     session["oa_answers"] = {}
@@ -2101,11 +2180,18 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
         content_answers = content_result.get("answers", [])
         aggregate = content_result.get("aggregate", {})
 
-        content_scores = [a.get("score", 50) for a in content_answers]
-        content_avg = sum(content_scores) / max(len(content_scores), 1)
+        content_scores = [
+            a["score"] for a in content_answers
+            if a.get("evaluation_available") and a.get("score") is not None
+        ]
+        content_avg = sum(content_scores) / len(content_scores) if content_scores else None
 
         # -- FEATURE 6: Overall Score & Verdict ------------------------
-        overall = compute_overall_score(content_avg, avg_clarity, avg_engagement,questions_answers)
+        overall = (
+            compute_overall_score(content_avg, avg_clarity, avg_engagement, questions_answers)
+            if content_avg is not None
+            else round(0.6 * avg_clarity + 0.4 * avg_engagement, 1)
+        )
         verdict = compute_recruiter_verdict(overall, role)
 
         # -- FEATURE 4 (cont.): Session Metadata -----------------------
@@ -2153,10 +2239,11 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
             detailed_answers.append({
                 "question": question_text,
                 "transcript": answer_text,
-                "score": ca.get("score", 50),
-                "strengths": strengths,
-                "weaknesses": weaknesses,
-                "ideal_answer": ca.get("ideal_answer", "No ideal answer generated."),
+                "score": ca.get("score"),
+                "evaluation_available": ca.get("evaluation_available", False),
+                "strengths": strengths if ca.get("evaluation_available", False) else [],
+                "weaknesses": weaknesses if ca.get("evaluation_available", False) else [],
+                "ideal_answer": ca.get("ideal_answer", "") if ca.get("evaluation_available", False) else "",
                 "weak_topics": ca.get("weak_topics", []),
                "voice_metrics": {
     "speaking_pace_wpm": sa.get("speaking_pace_wpm", 0),
@@ -2195,15 +2282,16 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                 "per_answer": speech_analyses,
             },
             "content_analysis": {
-                "average_score": round(content_avg),
-                "relevance_score": aggregate.get("relevance_score", round(content_avg)),
-                "depth_score": aggregate.get("depth_score", round(content_avg)),
-                "star_method_score": aggregate.get("star_method_score", round(content_avg)),
+                "average_score": round(content_avg) if content_avg is not None else None,
+                "evaluation_available": bool(content_scores),
+                "relevance_score": aggregate.get("relevance_score", round(content_avg) if content_avg is not None else None),
+                "depth_score": aggregate.get("depth_score", round(content_avg) if content_avg is not None else None),
+                "star_method_score": aggregate.get("star_method_score", round(content_avg) if content_avg is not None else None),
                 "structured_thinking_score": aggregate.get(
-                    "structured_thinking_score", round(content_avg)
+                    "structured_thinking_score", round(content_avg) if content_avg is not None else None
                 ),
                 "problem_solving_score": aggregate.get(
-                    "problem_solving_score", round(content_avg)
+                    "problem_solving_score", round(content_avg) if content_avg is not None else None
                 ),
             },
             "detailed_answers": detailed_answers,
@@ -2469,6 +2557,8 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
         # Record interview per question into profile
         for i, qa in enumerate(questions_answers):
             ca = content_answers[i] if i < len(content_answers) else {}
+            if not ca.get("evaluation_available", True) or ca.get("score") is None:
+                continue
             topic = role  # Treat role as the main topic/skill for now
 
             sb = ScoreBreakdown(
@@ -2865,6 +2955,63 @@ def placement_report_page(request: Request, db: Session = Depends(get_db)):
         "level": session.get("level", "Junior"),
     })
 
+
+@app.get("/placement-report/{anchor_id}", response_class=HTMLResponse)
+def saved_placement_report_page(request: Request, anchor_id: int, db: Session = Depends(get_db)):
+    """Rebuild a saved full-simulation report from its persisted round reports."""
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+
+    anchor = db.query(Interview).filter(
+        Interview.id == anchor_id, Interview.user_id == user.id
+    ).first()
+    if not anchor:
+        raise HTTPException(status_code=404, detail="Placement report not found")
+
+    window_start = (anchor.date or datetime.utcnow()) - timedelta(hours=2)
+    window_end = (anchor.date or datetime.utcnow()) + timedelta(hours=2)
+    rounds = db.query(Interview).filter(
+        Interview.user_id == user.id,
+        Interview.role == anchor.role,
+        Interview.date >= window_start,
+        Interview.date <= window_end,
+    ).all()
+    reports: dict[str, dict] = {}
+    for item in rounds:
+        try:
+            report = json.loads(item.report_json or "{}")
+        except Exception:
+            continue
+        round_type = report.get("round_type")
+        if round_type in {"online_assessment", "technical", "hr"}:
+            reports[round_type] = report
+
+    if len(reports) < 2:
+        # Old data may contain only one persisted round; its normal report is
+        # still the useful, accurate view in that case.
+        return RedirectResponse(f"/interview-report/{anchor.id}", status_code=303)
+
+    oa_report = reports.get("online_assessment", {})
+    tech_report = reports.get("technical", {})
+    hr_report = reports.get("hr", {})
+    scores = [
+        oa_report.get("percentage", 0) if oa_report else None,
+        tech_report.get("overall_score", 0) if tech_report else None,
+        hr_report.get("overall_score", 0) if hr_report else None,
+    ]
+    scores = [float(score) for score in scores if score is not None]
+    overall_score = round(sum(scores) / len(scores), 1) if scores else 0
+    verdict = "Highly Recommended" if overall_score >= 80 else "Recommended" if overall_score >= 60 else "Average" if overall_score >= 40 else "Needs Improvement"
+
+    return templates.TemplateResponse(request, "placement_report.html", {
+        "request": request, "username": user.username,
+        "oa_report": oa_report, "tech_report": tech_report, "hr_report": hr_report,
+        "overall_score": overall_score, "overall_verdict": verdict,
+        "current_date": (anchor.date or datetime.utcnow()).strftime("%B %d, %Y"),
+        "role": anchor.role, "level": (tech_report.get("candidate_profile") or {}).get("level", "Junior"),
+    })
+
 @app.get("/report", response_class=HTMLResponse)
 def report_page(request: Request, db: Session = Depends(get_db)):
     """Render the full interview performance report."""
@@ -3150,6 +3297,7 @@ def _build_unified_learning_timeline(
     interviews: list,
     course_history: list,
     profile_row,
+    group_simulations: bool = True,
 ) -> list[dict]:
     """
     Role → interviews → follow-up recommendations and weak-topic insights.
@@ -3186,7 +3334,9 @@ def _build_unified_learning_timeline(
     # Grouping interviews into simulations or individual entries
     # A simulation is a group of interviews for the same role within a 2-hour window.
     grouped_interviews = []
-    if sorted_interviews:
+    if not group_simulations:
+        grouped_interviews = [[iv] for iv in sorted_interviews]
+    elif sorted_interviews:
         current_group = [sorted_interviews[0]]
         for i in range(1, len(sorted_interviews)):
             prev_iv = sorted_interviews[i-1]
@@ -3243,7 +3393,7 @@ def _build_unified_learning_timeline(
                     "score": round(float(iv.score), 1) if iv.score is not None else 0,
                     "weak_topics": weak_topics,
                     "summary_snippet": summary,
-                    "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
+                    "report_url": f"/oa/report/{iv.id}" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
                 })
 
             # For the main entry
@@ -3279,6 +3429,7 @@ def _build_unified_learning_timeline(
             bucket["interviews"].append(
                 {
                     "is_simulation": True,
+                    "id": main_iv.id,
                     "date_display": main_iv.date.strftime("%b %d, %Y") if main_iv.date else "",
                     "score": round(float(main_iv.score), 1) if main_iv.score is not None else 0,
                     "weak_topics": weak_topics,
@@ -3292,6 +3443,7 @@ def _build_unified_learning_timeline(
                     "level": level,
                     "role_for_url": role_for_url,
                     "rounds": rounds_details,
+                    "report_url": f"/placement-report/{main_iv.id}",
                 }
             )
         else:
@@ -3341,7 +3493,7 @@ def _build_unified_learning_timeline(
                     "rl_difficulty": rl.get("course_difficulty"),
                     "rl_topics": rl.get("course_topics") or [],
                     "rl_reward": rl.get("rl_reward") if "rl_reward" in report else rl.get("reward"),
-                    "report_url": "/oa/report" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
+                    "report_url": f"/oa/report/{iv.id}" if report.get("round_type") == "online_assessment" else f"/interview-report/{iv.id}",
                     "adaptive_course": adaptive_course,
                     "followup_url": followup_url,
                     "level": level,
@@ -3467,12 +3619,19 @@ def profile_page(request: Request, db: Session = Depends(get_db)):
     )
 
 @app.get("/interview-history", response_class=HTMLResponse)
-def interview_history_redirect(request: Request):
-    """
-    Simple semantic route that redirects to the profile page where
-    interview history is rendered.
-    """
-    return RedirectResponse("/profile")
+def interview_history_page(request: Request, db: Session = Depends(get_db)):
+    """A dedicated, persisted archive of full simulations and individual rounds."""
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+    profile_row = get_or_create_user_profile(db, user)
+    interviews = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.asc()).all()
+    timeline, _ = _build_unified_learning_timeline(
+        interviews, [], profile_row, group_simulations=False
+    )
+    return templates.TemplateResponse(request, "interview_history.html", {
+        "request": request, "username": user.username, "learning_timeline": timeline,
+    })
 
 
 # Deprecated: replaced by DB-based course system

@@ -71,7 +71,9 @@ class BaseChain:
         temperature: float = 0.0,
         max_tokens: int = 4000,
         json_mode: bool = False,
-        use_cache: bool = True
+        use_cache: bool = True,
+        response_format: Optional[Dict[str, str]] = None,
+        reasoning_effort: Optional[str] = None
     ) -> ChainResult:
         """
         Execute chain.
@@ -100,12 +102,19 @@ class BaseChain:
             prompt = self._format_prompt(input_data, context)
             
             # Step 4: Call LLM
+            invoke_args = {
+                "prompt": prompt,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "json_mode": json_mode,
+                "use_cache": use_cache,
+            }
+            if response_format is not None:
+                invoke_args["response_format"] = response_format
+            if reasoning_effort is not None:
+                invoke_args["reasoning_effort"] = reasoning_effort
             output = await self.llm_service.invoke(
-                prompt=prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                json_mode=json_mode,
-                use_cache=use_cache
+                **invoke_args,
             )
             
             # Step 5: Parse output with retry logic
@@ -380,14 +389,39 @@ class OnlineAssessmentChain(BaseChain):
             "role": input_data.get("role", "Software Engineer"),
             "level": input_data.get("level", "Junior"),
         }
+        prompt = self._format_prompt(prepared)
+        self._validate_oa_prompt(prompt)
+        kwargs.pop("max_tokens", None)
+        kwargs.pop("json_mode", None)
+        kwargs.pop("reasoning_effort", None)
+        logger.info("OA LLM call started")
+        logger.info("OA requested max_tokens=1200")
         return await super().invoke(
             prepared,
             use_rag=False,
             json_mode=True,
             use_cache=False,
-            max_tokens=8000,
+            max_tokens=1200,
+            reasoning_effort="low",
             **kwargs,
         )
+
+    def _validate_oa_prompt(self, prompt: str) -> None:
+        """Reject malformed schema instructions before consuming an LLM call."""
+        start = prompt.find("{\n  \"questions\"")
+        if start < 0:
+            raise ValueError("OA prompt is missing its JSON schema example")
+        try:
+            example, _ = json.JSONDecoder().raw_decode(prompt[start:])
+        except json.JSONDecodeError as exc:
+            raise ValueError("OA prompt contains malformed JSON schema instructions") from exc
+        if set(example) != {"questions"} or not isinstance(example["questions"], list):
+            raise ValueError("OA prompt schema must contain only questions")
+        if len(example["questions"]) != 1 or set(example["questions"][0]) != {
+            "question", "option_a", "option_b", "option_c", "option_d",
+            "correct_answer", "explanation", "topic",
+        }:
+            raise ValueError("OA prompt question schema is invalid")
 
 
 class EvaluationChain(BaseChain):

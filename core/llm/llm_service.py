@@ -1,5 +1,6 @@
 # core/llm_service.py
 import asyncio
+import json
 import time
 import hashlib
 from typing import Optional, Dict, Any
@@ -64,7 +65,9 @@ class LLMService:
         temperature: float = 0.0,
         max_tokens: int = 4000,
         use_cache: bool = True,
-        json_mode: bool = False
+        json_mode: bool = False,
+        response_format: Optional[Dict[str, str]] = None,
+        reasoning_effort: Optional[str] = None
     ) -> str:
         """Execute single LLM call."""
         
@@ -89,15 +92,44 @@ class LLMService:
                 "content": prompt
             })
             
+            request_args = {
+                "model": self.settings.model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if response_format:
+                request_args["response_format"] = response_format
+            if reasoning_effort:
+                request_args["reasoning_effort"] = reasoning_effort
+
             response = await asyncio.to_thread(
                 self.client.chat.completions.create,
-                model=self.settings.model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
+                **request_args,
             )
             
-            result = response.choices[0].message.content.strip()
+            message = response.choices[0].message
+            content = message.content
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", part.get("content", "")) if isinstance(part, dict)
+                    else getattr(part, "text", "")
+                    for part in content
+                )
+            if not isinstance(content, str) or not content.strip():
+                for field in ("reasoning", "reasoning_content", "output_text", "text"):
+                    alternate = getattr(message, field, None)
+                    if isinstance(alternate, str) and alternate.strip():
+                        content = alternate
+                        logger.info("Using alternate Groq message.%s for JSON parsing", field)
+                        break
+            if not isinstance(content, str) or not content.strip():
+                logger.error(
+                    "LLM response contained no message content (finish_reason=%s)",
+                    getattr(response.choices[0], "finish_reason", None),
+                )
+                raise ValueError("LLM returned empty message content")
+            result = content.strip()
             
             if use_cache and self.settings.cache_enabled and result:
                 self.cache.set(prompt, result)

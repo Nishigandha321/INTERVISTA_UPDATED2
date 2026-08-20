@@ -1,353 +1,44 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Learning Dashboard</title>
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/intervista-ui.css">
-<link rel="stylesheet" href="/static/profile-dashboard.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-
-<body class="profile-dashboard">
-
-<nav class="navbar dashboard-navbar">
-  <div class="nav-container">
-    <h2 class="logo">
-      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
-      INTERVISTA
-    </h2>
-    <div class="nav-links">
-      <a href="/">Home</a>
-      <a href="/#features">Features</a>
-      <!--<a href="/#flow">How it Works</a>-->
-      <a href="/#contact">Contact</a>
-    </div>
-    <div class="user-menu">
-      <button class="user-avatar" id="userAvatar" type="button">
-        <span class="avatar-circle">{{ username[:1] | upper }}</span>
-      </button>
-      <div class="user-dropdown" id="userDropdown">
-        <div class="user-dropdown-header">
-          <div class="user-name">{{ username }}</div>
-        </div>
-        <a href="/profile" class="dropdown-item">View Dashboard</a>
-        <a href="/logout" class="dropdown-item danger">Log Out</a>
+<html lang="en"><head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/styles.css"><link rel="stylesheet" href="/static/profile-dashboard.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script><title>Dashboard · Intervista</title>
+</head><body class="intervista-app">
+{% set display_name = user_profile.first_name or username %}
+<aside class="intervista-sidebar">
+  <a href="/" class="brand"><span class="brand-mark">✧</span><span>INTERVISTA</span><b>‹</b></a>
+  <div class="sidebar-profile"><span class="initial">{{ username[:1]|upper }}</span><div><strong>{{ display_name }}</strong><small>Candidate</small></div></div>
+  <nav class="primary-nav">
+    <a class="is-active" href="/profile"><i>⌂</i>Dashboard</a>
+    <a href="/index"><i>◉</i>Mock Interviews</a>
+    <a class="subnav" href="/index#full-simulation">Full Simulation</a>
+    <a class="subnav" href="/index#individual-practice">Individual Practice</a>
+    <span class="nav-disabled"><i>◌</i>GD <em>SOON</em></span>
+    <a href="/interview-history"><i>◷</i>Interview History</a>
+  </nav>
+  <nav class="account-nav"><a href="/profile"><i>◯</i>Profile</a><a class="signout" href="/logout"><i>↪</i>Logout</a></nav>
+</aside>
+<main class="intervista-main">
+  <header class="app-page-header"><div><p class="eyebrow">INTERVISTA / DASHBOARD</p><h1>Good to see you, {{ display_name }}.</h1><p class="lede">Your preparation hub — profile, skills and interview progress in one place.</p></div><a href="/index" class="primary-button">Start Mock Interview →</a></header>
+  <section class="app-panel profile-panel" id="preparation-profile">
+    <div class="panel-title"><h2>Preparation profile</h2><p>Keep your target role, company and resume up to date so every practice session stays personalised.</p></div>
+    <form action="/profile" method="post" enctype="multipart/form-data" class="prep-form">
+      <div class="profile-inputs">
+        <label>Target role<input name="role" value="{{ user_profile.role_applied_for or '' }}" placeholder="e.g. AI engineer" required></label>
+        <label>Experience level<select name="level" required><option value="">Select level</option>{% for value, label in [('intern','Intern'),('junior','Junior'),('mid','Mid-Level'),('senior','Senior')] %}<option value="{{ value }}" {% if user_profile.current_designation == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="span-two">Target company<input name="company_name" value="{{ user_profile.company_name or '' }}" placeholder="e.g. Google, Microsoft, Barclays"></label>
+        <label class="span-two">Job description<textarea name="job_description" rows="8" placeholder="Paste the target job description here.">{{ user_profile.job_description or '' }}</textarea></label>
       </div>
-    </div>
-  </div>
-</nav>
-
-<header class="page-header dashboard-page-header">
-  <div>
-    <span class="page-kicker">INTERVISTA CAREER INTELLIGENCE</span>
-    <h1>Learning Dashboard</h1>
-  <p class="page-subtitle">Interview → weaknesses → report insights → follow-up</p>
-  </div>
-  <a href="/index" class="btn small-btn dashboard-cta">Start a practice session</a>
-</header>
-
-<main class="dashboard-main">
-
-  <!-- 1. Profile header -->
-  <section class="dash-section profile-overview" id="profile-header">
-    <div class="section-heading"><div><span class="section-eyebrow">YOUR PREPARATION</span><h2>Profile &amp; resume</h2></div><span class="section-caption">Keep your interview context current</span></div>
-    <div class="profile-header-grid">
-      <div class="profile-identity">
-        <div class="profile-avatar-large">{{ username[:1] | upper }}</div>
-        <div class="profile-intro"><div class="profile-name">{{ user_profile.first_name or username }} {{ user_profile.last_name or "" }}</div>
-        <p class="profile-helper">Your profile helps INTERVISTA tailor every practice session.</p>
-        <div class="profile-meta-row">
-          <div class="meta-pill">
-            <strong>Target role</strong>
-            {{ user_profile.role_applied_for or "Not set" }}
-          </div>
-          <div class="meta-pill">
-            <strong>Level</strong>
-            {{ user_profile.current_designation or "Not set" }}
-          </div>
-        </div></div>
-      </div>
-      <div class="profile-resume-actions">
-        <span class="resume-label">Resume</span>
-        {% if user_profile.resume_file_path %}
-        <a href="/{{ user_profile.resume_file_path }}" class="btn small-btn" download>Download resume</a>
-        {% endif %}
-        <form action="/update-resume" method="post" enctype="multipart/form-data">
-          <input type="file" name="file" required accept=".pdf,.docx" aria-label="Resume file">
-          <button type="submit" class="btn small-btn outline-btn">Update resume</button>
-        </form>
-      </div>
-    </div>
+      <div class="resume-upload"><span class="file-badge">PDF</span><h3>Resume</h3><p>Upload a PDF or DOCX to personalise your interview questions.</p><label class="file-picker"><span>Choose File</span><input name="resume" type="file" accept=".pdf,.docx"><b>No file chosen</b></label>{% if user_profile.resume_file_path %}<a class="download-resume" href="/{{ user_profile.resume_file_path }}" download>Download current resume</a>{% endif %}</div>
+      <div class="save-row"><button type="submit" class="primary-button">Save changes</button></div>
+    </form>
   </section>
-
-  <!-- 2. Skill snapshot (high-level only) -->
-  <section class="dash-section" id="skill-snapshot">
-    <div class="section-heading"><div><span class="section-eyebrow">READINESS AT A GLANCE</span><h2>Skill snapshot</h2></div><span class="section-caption">Based on your evaluated interviews</span></div>
-    {% if dashboard.has_data and dashboard.snapshot %}
-    <div class="snapshot-kpi-grid">
-      {% for item in dashboard.snapshot %}
-      <div class="snapshot-kpi snapshot-kpi--{{ item.kind }}">
-        <span class="snapshot-kpi-value" data-kind="{{ item.kind }}">{{ item.value }}{% if item.kind != 'count' and item.kind != 'primary' %}%{% endif %}</span>
-        <span class="snapshot-kpi-label">{{ item.label }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty-state">Complete a voice interview to unlock your readiness overview.</p>
-    <a href="/index" class="btn small-btn">Start interview</a>
-    {% endif %}
-  </section>
-
-  <!-- 3. Skill analysis + focus -->
-  <section class="dash-section" id="skill-analysis">
-    <div class="section-heading"><div><span class="section-eyebrow">PERSONALISED COACHING</span><h2>Skill analysis &amp; focus</h2></div><span class="section-caption">Prioritise what will make the biggest difference</span></div>
-    {% if dashboard.has_data %}
-    <div class="analysis-split">
-      <div class="analysis-table-wrap">
-        <h3 class="subheading">Detailed breakdown</h3>
-        <table class="analysis-table">
-          <thead>
-            <tr>
-              <th>Dimension</th>
-              <th>Area</th>
-              <th>Score</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in dashboard.analysis %}
-            <tr class="tier-{{ row.tier }}">
-              <td>{{ row.label }}</td>
-              <td>{{ row.group }}</td>
-              <td class="analysis-score"><strong>{{ row.value }}%</strong><span class="score-meter"><span style="width:{{ row.value }}%;"></span></span></td>
-              <td><span class="tier-badge tier-badge--{{ row.tier }}">{{ row.tier }}</span></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div class="focus-panel">
-        <h3 class="subheading">Focus areas</h3>
-        {% if dashboard.focus_areas %}
-        <ul class="focus-actions">
-          {% for item in dashboard.focus_areas %}
-          <li>
-            <div class="focus-actions-head">
-              <span class="focus-actions-name">{{ item.name }}</span>
-              <span class="focus-actions-score">{{ item.score }}%</span>
-            </div>
-            <p class="focus-actions-text">{{ item.action }}</p>
-            <span class="focus-meter"><span style="width:{{ item.score }}%;"></span></span>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="empty-state">No critical gaps — keep practicing to maintain momentum.</p>
-        {% endif %}
-      </div>
-    </div>
-    {% else %}
-    <p class="empty-state">Skill analysis appears after your first evaluated interview.</p>
-    {% endif %}
-  </section>
-
-  <!-- 4. Performance -->
-  <section class="dash-section performance-section" id="performance">
-    <div class="section-heading"><div><span class="section-eyebrow">MOMENTUM</span><h2>Performance over time</h2></div><span class="section-caption">Track how each practice session moves your score</span></div>
-    {% if timeline_by_role and timeline_by_role | length > 0 %}
-    <div class="chart-toolbar">
-      <label for="roleSelector">Role</label>
-      <select id="roleSelector" aria-label="Select role"></select>
-    </div>
-    <div class="chart-wrap" aria-label="Interview performance chart">
-      <canvas id="performanceChart"></canvas>
-    </div>
-    {% else %}
-    <p class="empty-state">Interview score trends will display here.</p>
-    {% endif %}
-  </section>
-
-  <!-- 5. Unified history -->
-  <section class="dash-section learning-history" id="learning-timeline">
-    <div class="section-heading"><div><span class="section-eyebrow">PRACTICE ARCHIVE</span><h2>Learning history</h2></div><span class="section-caption">Open an entry to revisit feedback and next steps</span></div>
-    <p class="timeline-intro"></p>
-
-    {% if learning_timeline %}
-    {% for role_group in learning_timeline %}
-    <div class="role-group">
-      <div class="role-group-title"><span>{{ role_group.role_display }}</span><span class="role-group-line"></span></div>
-
-      {% for iv in role_group.interviews %}
-      <details class="tl-interview {% if iv.is_simulation %}tl-interview--simulation{% endif %}">
-        <summary>
-          <span class="tl-date-badge">{{ iv.date_display }}</span>
-          <div class="tl-summary-main">
-            <div class="tl-summary-title">
-              {% if iv.is_simulation %}
-                Full Interview Simulation
-              {% elif iv.report_url == '/oa/report' %}
-                Mock Online Assessment
-              {% else %}
-                Mock Interview
-              {% endif %}
-            </div>
-            <div class="tl-summary-sub">
-              {% if iv.is_simulation %}
-                {{ iv.rounds | length }} Rounds Completed
-              {% elif iv.rl_action %}
-                Path: {{ iv.rl_action }}{% if iv.rl_difficulty %} · {{ iv.rl_difficulty }}{% endif %}
-              {% else %}
-                Evaluated
-              {% endif %}
-            </div>
-          </div>
-          <span class="tl-score-pill {% if iv.score >= 70 %}tl-score-pill--high{% elif iv.score >= 50 %}tl-score-pill--mid{% else %}tl-score-pill--low{% endif %}">
-            <small>Score</small>{{ iv.score }}<em>/100</em>
-          </span>
-        </summary>
-        <div class="tl-body">
-          {% if iv.is_simulation %}
-          <div class="tl-block">
-            <h4>Simulation Breakdown</h4>
-            <div class="tl-rounds-list">
-              {% for round in iv.rounds %}
-              <div class="tl-round-item">
-                <div class="tl-round-info">
-                  <span class="tl-round-name">{{ round.round_name }}</span>
-                  <span class="tl-round-date">{{ round.date_display }}</span>
-                </div>
-                <div class="tl-round-meta">
-                  <span class="tl-round-score">{{ round.score }}/100</span>
-                  <a href="{{ round.report_url }}" class="tl-round-link">View Round Report</a>
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-
-          <div class="tl-block">
-            <h4>Overall Report</h4>
-            <div class="tl-actions">
-              <a href="{{ iv.report_url }}" class="btn small-btn">View report</a>
-            </div>
-          </div>
-          {% if iv.weak_topics %}
-          <div class="tl-block">
-            <h4>Weak topics</h4>
-            <div class="tl-tags">
-              {% for topic in iv.weak_topics %}
-              <span class="tl-tag">{{ topic }}</span>
-              {% endfor %}
-            </div>
-          </div>
-          {% endif %}
-          {% if iv.adaptive_course %}
-          <div class="tl-block">
-            <h4>Recommended focus</h4>
-            <div class="tl-course-card">
-              <div class="tl-course-head">
-                <span class="tl-course-title">{{ iv.adaptive_course.title }}</span>
-                <span class="tl-tag tl-tag--blue">{{ iv.adaptive_course.progress_pct }}%</span>
-              </div>
-              <div class="progress-track">
-                <div class="progress-fill{% if iv.adaptive_course.is_complete %} progress-fill--complete{% endif %}"
-                     style="width:{{ iv.adaptive_course.progress_pct }}%;"></div>
-              </div>
-              {% if iv.followup_url %}
-              <div class="tl-actions">
-                <a href="{{ iv.followup_url }}" class="btn small-btn">Follow-up interview</a>
-              </div>
-              {% endif %}
-            </div>
-          </div>
-          {% endif %}
-        </div>
-      </details>
-      {% endfor %}
-    </div>
-    {% endfor %}
-
-    {% else %}
-    <div class="empty-state-box">
-      <p class="empty-state">No interviews yet. Start a mock interview to begin your review journey.</p>
-      <a href="/index" class="btn small-btn">Go to Home</a>
-    </div>
-    {% endif %}
-  </section>
-
+  <section class="app-panel snapshot-panel" id="skill-snapshot"><div class="panel-title"><h2>Skill snapshot</h2><p>Your current readiness at a glance.</p></div>{% if dashboard.has_data and dashboard.snapshot %}<div class="snapshot-grid">{% for item in dashboard.snapshot %}<article><strong>{{ item.value }}{% if item.kind != 'count' and item.kind != 'primary' %}%{% endif %}</strong><span>{{ item.label }}</span></article>{% endfor %}</div>{% else %}<p class="empty-copy">Complete a mock interview to unlock your readiness overview.</p>{% endif %}</section>
+  <section class="app-panel performance-panel"><div class="panel-title panel-title-row"><div><h2>Performance over time</h2><p>Track how your interview scores change with practice.</p></div>{% if timeline_by_role %}<label class="role-select">Role<select id="roleSelector"></select></label>{% endif %}</div>{% if timeline_by_role %}<div class="chart-wrap"><canvas id="performanceChart"></canvas></div>{% else %}<p class="empty-copy">Interview score trends will display here.</p>{% endif %}</section>
 </main>
-
 <script>
-const timelineByRole = {{ timeline_by_role | tojson | safe }} || {};
-
-function renderTimeline(role) {
-  const data = timelineByRole[role] || [];
-  if (!data.length) return;
-  const ctx = document.getElementById("performanceChart");
-  if (!ctx) return;
-  if (window._timelineChart) window._timelineChart.destroy();
-  window._timelineChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: data.map((d) => d.date),
-      datasets: [{
-        data: data.map((d) => d.score),
-        borderColor: "#2563eb",
-        backgroundColor: "rgba(37, 99, 235, 0.08)",
-        fill: true,
-        tension: 0.35,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { y: { min: 0, max: 100 } },
-      plugins: { legend: { display: false } },
-    },
-  });
-}
-
-function initTimeline() {
-  const selector = document.getElementById("roleSelector");
-  if (!selector) return;
-  const roles = Object.keys(timelineByRole);
-  if (!roles.length) return;
-  roles.forEach((role) => {
-    const opt = document.createElement("option");
-    opt.value = role;
-    opt.textContent = role.replace(/\b\w/g, (c) => c.toUpperCase());
-    selector.appendChild(opt);
-  });
-  selector.value = roles[0];
-  renderTimeline(roles[0]);
-  selector.addEventListener("change", () => renderTimeline(selector.value));
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  const primary = document.querySelector(".snapshot-kpi--primary .snapshot-kpi-value");
-  if (primary) {
-    const v = parseFloat(primary.textContent);
-    if (!isNaN(v)) {
-      primary.style.color = v >= 70 ? "#059669" : v >= 55 ? "#d97706" : "#dc2626";
-    }
-  }
-  initTimeline();
-});
-
-const avatar = document.getElementById("userAvatar");
-const dropdown = document.getElementById("userDropdown");
-if (avatar && dropdown) {
-  avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
-  window.addEventListener("click", (e) => {
-    if (!avatar.contains(e.target) && !dropdown.contains(e.target)) {
-      dropdown.classList.remove("show");
-    }
-  });
-}
-</script>
-
-</body>
-</html>
+document.querySelectorAll('.file-picker input').forEach(input=>input.addEventListener('change',()=>{const name=input.files[0]?.name||'No file chosen';input.parentElement.querySelector('b').textContent=name}));
+const timelineByRole={{ timeline_by_role|tojson|safe }}||{};
+function renderTimeline(role){const data=timelineByRole[role]||[],ctx=document.getElementById('performanceChart');if(!ctx)return;if(window._timelineChart)window._timelineChart.destroy();window._timelineChart=new Chart(ctx,{type:'line',data:{labels:data.map(d=>d.date),datasets:[{data:data.map(d=>d.score),borderColor:'#6357f5',borderWidth:3,pointRadius:3,pointHoverRadius:5,pointBackgroundColor:'#fff',pointBorderColor:'#6357f5',backgroundColor:'rgba(99,87,245,.08)',fill:true,tension:.35}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:100,grid:{color:'rgba(128,139,165,.18)'},ticks:{stepSize:10}},x:{grid:{color:'rgba(128,139,165,.14)'}}},plugins:{legend:{display:false}}}})}
+const selector=document.getElementById('roleSelector');if(selector){const roles=Object.keys(timelineByRole);roles.forEach(role=>{const option=document.createElement('option');option.value=role;option.textContent=role.replace(/\b\w/g,c=>c.toUpperCase());selector.appendChild(option)});if(roles.length){selector.value=roles[0];renderTimeline(roles[0]);selector.addEventListener('change',()=>renderTimeline(selector.value))}}
+</script></body></html>
