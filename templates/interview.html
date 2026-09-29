@@ -160,8 +160,11 @@ let typingTimer=null;
 let silenceTimer=null;
 let manualSubmitMode=false;
 let manualStop=false;
-let recognitionRetryCount=0;
-const MAX_RESTARTS=3;
+let recognitionStarting=false;
+let finalTranscript="";
+let interimTranscript="";
+let recognitionRestartTimer=null;
+let recognitionStopResolver=null;
 
 
 /* BUTTONS */
@@ -195,6 +198,7 @@ document.getElementById("btn-submit-answer").onclick = async () => {
 
 if(answerSubmitted) return;
 
+await stopListening();
 const answer=document.getElementById("live-transcript").value.trim();
 await processAnswer(answer||"(no response)", 120);
 
@@ -233,47 +237,44 @@ window.speechSynthesis.speak(utter);
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function startListening(){
+function startListening(isRestart=false){
   if(!SpeechRecognition){
     const statusText=document.getElementById("voice-status-text");
     statusText.textContent="Speech recognition unsupported in this browser.";
     return;
   }
 
-  if(isListening) return;
-  manualStop=false;
-  recognitionRetryCount=0;
+  if(isListening || recognitionStarting || (isRestart && (manualStop || answerSubmitted))) return;
+
+  clearTimeout(recognitionRestartTimer);
+  recognitionRestartTimer=null;
 
   const transcript=document.getElementById("live-transcript");
   const statusText=document.getElementById("voice-status-text");
   const ring=document.getElementById("voice-ring");
 
+  if(!isRestart){
+    manualStop=false;
+    finalTranscript=transcript.value.trim();
+    interimTranscript="";
+    window.currentTranscript=finalTranscript;
+  }
+
   recognition=new SpeechRecognition();
+  const currentRecognition=recognition;
   recognition.continuous=true;
   recognition.interimResults=true;
   recognition.lang="en-US";
   recognition.maxAlternatives=1;
 
-  let finalTranscript=transcript.value.trim() || "";
-  window.currentTranscript=finalTranscript;
-
-  const SILENCE_TIMEOUT=8000;
-
-  function resetSilenceTimer(){
-    // Automatic submission disabled to require manual 'Submit Answer'
-  }
-
   recognition.onstart=()=>{
+    recognitionStarting=false;
     isListening=true;
     statusText.textContent="Listening...";
     ring.classList.add("active");
   };
 
   recognition.onresult=(event)=>{
-    if(!isListening) return;
-
-    // Removed resetSilenceTimer() call to disable auto-submit
-
     let interim="";
 
     for(let i=event.resultIndex;i<event.results.length;i++){
@@ -285,7 +286,8 @@ function startListening(){
       }
     }
 
-    transcript.value = finalTranscript + interim;
+    interimTranscript=interim;
+    transcript.value = finalTranscript + interimTranscript;
   };
 
   recognition.onerror=(event)=>{
@@ -293,8 +295,11 @@ function startListening(){
 
     if(event.error=== "not-allowed" || event.error=== "permission-denied"){
       manualStop=true;
+      clearTimeout(recognitionRestartTimer);
+      recognitionRestartTimer=null;
       statusText.textContent="Microphone permission denied.";
       isListening=false;
+      recognitionStarting=false;
       ring.classList.remove("active");
       return;
     }
@@ -304,23 +309,41 @@ function startListening(){
 
   recognition.onend=()=>{
     isListening=false;
+    recognitionStarting=false;
     ring.classList.remove("active");
+
+    interimTranscript="";
+    transcript.value=finalTranscript;
+
+    if(recognition === currentRecognition) recognition=null;
+    if(recognitionStopResolver){
+      const resolveStop=recognitionStopResolver;
+      recognitionStopResolver=null;
+      resolveStop();
+    }
 
     if(answerSubmitted || manualStop) return;
 
-    if(recognitionRetryCount < MAX_RESTARTS){
-      recognitionRetryCount++;
-      statusText.textContent="Reconnecting microphone...";
-      setTimeout(()=> startListening(), 500);
-    } else {
-      statusText.textContent="Listening stopped. Please refresh or check microphone.";
-    }
+    statusText.textContent="Reconnecting microphone...";
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer=setTimeout(()=>{
+      recognitionRestartTimer=null;
+      if(!manualStop && !answerSubmitted && !isListening && !recognitionStarting){
+        startListening(true);
+      }
+    }, 300);
   };
 
+  recognitionStarting=true;
   try{
     recognition.start();
   }catch(error){
+    recognitionStarting=false;
     console.warn("SpeechRecognition failed to start:", error);
+    if(error.name === "InvalidStateError"){
+      isListening=true;
+      return;
+    }
     statusText.textContent="Unable to start microphone.";
   }
 }
@@ -328,17 +351,35 @@ function startListening(){
 function stopListening(){
   manualStop=true;
   clearTimeout(silenceTimer);
+  clearTimeout(recognitionRestartTimer);
+  recognitionRestartTimer=null;
 
-  if(recognition){
+  const activeRecognition=recognition;
+  const shouldWaitForEnd=!!activeRecognition && (isListening || recognitionStarting);
+  let stopped=Promise.resolve();
+
+  if(shouldWaitForEnd){
+    stopped=new Promise(resolve=>{ recognitionStopResolver=resolve; });
+  }
+
+  if(activeRecognition){
     try{
-      recognition.stop();
-    }catch(_){ }
-    recognition=null;
+      activeRecognition.stop();
+    }catch(_){
+      if(recognitionStopResolver){
+        const resolveStop=recognitionStopResolver;
+        recognitionStopResolver=null;
+        resolveStop();
+      }
+    }
+    if(recognition === activeRecognition) recognition=null;
   }
 
   isListening=false;
+  recognitionStarting=false;
   const ring=document.getElementById("voice-ring");
   ring.classList.remove("active");
+  return stopped;
 }
 
 

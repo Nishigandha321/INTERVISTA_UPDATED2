@@ -42,13 +42,20 @@ def normalize_transcript(text: str) -> str:
 FILLER_WORDS = {
     "um",
     "uh",
+    "uhm",
+    "hmm",
     "like",
     "so",
     "well",
+    "you know",
     "actually",
     "basically",
     "literally",
     "totally",
+    "okay",
+    "right",
+    "kind of",
+    "sort of",
 }
 
 try:
@@ -101,7 +108,11 @@ def analyze_speech_delivery(answer: str, duration_seconds: float) -> dict:
     duration_minutes = max(duration_seconds / 60.0, 0.01)
     wpm = word_count / duration_minutes
     cleaned = [w.lower().strip(".,!?") for w in words]
-    fillers = [w for w in cleaned if w in FILLER_WORDS]
+    filler_pattern = r"\b(?:" + "|".join(
+        re.escape(filler).replace(r"\ ", r"\s+")
+        for filler in sorted(FILLER_WORDS, key=len, reverse=True)
+    ) + r")\b"
+    fillers = [match.group(0).lower() for match in re.finditer(filler_pattern, answer, re.IGNORECASE)]
     filler_rate = len(fillers) / max(word_count, 1)
     sentences = re.split(r"[.!?]+", answer)
     sentences = [s for s in sentences if s.strip()]
