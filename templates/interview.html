@@ -67,14 +67,7 @@
 
 <section id="interview-phase" class="card" style="display:none;">
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-<h2>{{ role }} — {{ level }}</h2>
-<span class="badge" id="question-counter">Question 1 / {{ total_questions|default(9) }}</span>
-</div>
-
-
 <div id="interviewer-bubble" class="interviewer-bubble">
-<div class="bubble-label">AI Interviewer</div>
 <p id="current-question"></p>
 </div>
 
@@ -90,31 +83,10 @@
 <span id="voice-status-text">Waiting...</span>
 </div>
 
-
-<div id="transcript-area" style="margin-top:16px;">
-<label style="font-size:0.9rem;">Your answer:</label>
-
-<textarea
-id="live-transcript"
-placeholder="Type your answer, pseudocode, or code snippet here..."
-style="min-height:80px;opacity:0.85;"></textarea>
-
-</div>
-
-
 <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
-
-<button id="btn-start-recording" class="btn" style="width:160px;">
-Start Recording
-</button>
-
-<button id="btn-submit-answer" class="btn" style="width:160px;">
-Submit Answer
-</button>
-
-<button id="btn-skip" class="btn outline" style="width:140px;">Skip Question</button>
-
-<button id="btn-end-early" class="btn outline" style="width:180px;">End Interview Early</button>
+<button id="btn-finish-speaking" class="btn" style="display:none;">Submit Answer</button>
+<button id="btn-skip" class="btn outline">Skip this question</button>
+<button id="btn-end-early" class="btn outline">End interview</button>
 
 </div>
 
@@ -138,463 +110,196 @@ Submit Answer
 
 
 <script>
-
 (function(){
+  const SESSION_ID = {{ interview_session_id|tojson }};
+  const ROUND_EXECUTABLE = {{ "true" if round_executable|default(true) else "false" }};
+  const SPEECH_CONTEXT_TERMS = {{ speech_context_terms|default([])|tojson }};
+  const INTERVIEW_TYPE = {{ interview_type|default('technical')|tojson }};
+  const ROLE = {{ role|default('')|tojson }};
+  const phase = { value: "IDLE" };
+  const statusText = document.getElementById("voice-status-text");
+  const ring = document.getElementById("voice-ring");
+  const finishButton = document.getElementById("btn-finish-speaking");
+  let currentQuestion = null;
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let recordingStarted = false;
+  let recordedAudio = null;
+  let pendingTranscript = "";
+  let answerStartedAt = 0;
+  let answerInFlight = false;
+  let evaluationInFlight = false;
+  let answerId = "";
+  let speechGeneration = 0;
 
-const ROLE="{{ role }}";
-const LEVEL="{{ level }}";
-const USER_ID="{{ user_id }}";
-const TOTAL_QUESTIONS={{ total_questions|default(9) }};
-const ROUND_EXECUTABLE={{ "true" if round_executable|default(true) else "false" }};
-const CURRENT_ROUND="{{ current_round|default('technical') }}";
-const INTERVIEW_MODE="{{ interview_mode|default('placement_simulation') }}";
-
-let questions=[];
-let answers=[];
-let currentIdx=0;
-
-let recognition=null;
-let isListening=false;
-let answerSubmitted=false;
-let typingTimer=null;
-let silenceTimer=null;
-let manualSubmitMode=false;
-let manualStop=false;
-let recognitionStarting=false;
-let finalTranscript="";
-let interimTranscript="";
-let recognitionRestartTimer=null;
-let recognitionStopResolver=null;
-
-
-/* BUTTONS */
-
-document.getElementById("btn-start-recording").onclick = () => {
-    startListening();
-};
-
-document.getElementById("btn-skip").onclick = async () => {
-
-if(answerSubmitted) return;
-
-stopListening();
-document.getElementById("live-transcript").value = "";
-await processAnswer("(skipped)", 0);
-
-};
-
-
-document.getElementById("btn-end-early").onclick = async () => {
-    stopListening();
-    const answer = document.getElementById("live-transcript").value.trim();
-    if (answer && !answerSubmitted) {
-        await processAnswer(answer || "(no response)", 30);
+  function finalizeRecording(){
+    if(!recordedAudio && audioChunks.length){
+      recordedAudio=new Blob(audioChunks,{type:mediaRecorder?.mimeType||"audio/webm"});
     }
-    evaluateAll();
-};
-
-
-document.getElementById("btn-submit-answer").onclick = async () => {
-
-if(answerSubmitted) return;
-
-await stopListening();
-const answer=document.getElementById("live-transcript").value.trim();
-await processAnswer(answer||"(no response)", 120);
-
-};
-
-
-
-/* SPEECH SYNTHESIS */
-
-function speak(text){
-
-return new Promise(resolve=>{
-
-if(!('speechSynthesis' in window)){
-resolve();
-return;
-}
-
-stopListening();
-window.speechSynthesis.cancel();
-
-const utter=new SpeechSynthesisUtterance(text);
-
-utter.rate=1;
-utter.pitch=1;
-
-utter.onend=resolve;
-utter.onerror=resolve;
-
-window.speechSynthesis.speak(utter);
-
-});
-
-}
-
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-function startListening(isRestart=false){
-  if(!SpeechRecognition){
-    const statusText=document.getElementById("voice-status-text");
-    statusText.textContent="Speech recognition unsupported in this browser.";
-    return;
+    if(mediaStream)mediaStream.getTracks().forEach(track=>track.stop());
+    mediaStream=null;
+    return recordedAudio;
+  }
+  function setPhase(next, message){
+    const allowed = {IDLE:["SPEAKING","PROCESSING","FINISHED"],SPEAKING:["LISTENING","PROCESSING","FINISHED"],LISTENING:["PROCESSING","FINISHED"],PROCESSING:["SPEAKING","LISTENING","FINISHED"],FINISHED:[]};
+    if(next !== phase.value && !(allowed[phase.value] || []).includes(next)) return false;
+    phase.value = next;
+    if(message) statusText.textContent = message;
+    ring.classList.toggle("active", next === "LISTENING");
+    finishButton.style.display = next === "LISTENING" ? "inline-block" : "none";
+    document.getElementById("btn-skip").disabled = next !== "LISTENING" && next !== "IDLE";
+    document.getElementById("btn-end-early").disabled = next === "PROCESSING" || next === "FINISHED";
+    return true;
   }
 
-  if(isListening || recognitionStarting || (isRestart && (manualStop || answerSubmitted))) return;
-
-  clearTimeout(recognitionRestartTimer);
-  recognitionRestartTimer=null;
-
-  const transcript=document.getElementById("live-transcript");
-  const statusText=document.getElementById("voice-status-text");
-  const ring=document.getElementById("voice-ring");
-
-  if(!isRestart){
-    manualStop=false;
-    finalTranscript=transcript.value.trim();
-    interimTranscript="";
-    window.currentTranscript=finalTranscript;
+  function stopRecording(){
+    return new Promise(resolve=>{
+      if(!mediaRecorder || mediaRecorder.state === "inactive") return resolve(finalizeRecording());
+      mediaRecorder.addEventListener("stop",()=>{
+        resolve(finalizeRecording());
+      },{once:true});
+      mediaRecorder.stop();
+    });
   }
-
-  recognition=new SpeechRecognition();
-  const currentRecognition=recognition;
-  recognition.continuous=true;
-  recognition.interimResults=true;
-  recognition.lang="en-US";
-  recognition.maxAlternatives=1;
-
-  recognition.onstart=()=>{
-    recognitionStarting=false;
-    isListening=true;
-    statusText.textContent="Listening...";
-    ring.classList.add("active");
-  };
-
-  recognition.onresult=(event)=>{
-    let interim="";
-
-    for(let i=event.resultIndex;i<event.results.length;i++){
-      if(event.results[i].isFinal){
-        finalTranscript += event.results[i][0].transcript + " ";
-        window.currentTranscript = finalTranscript;
-      } else {
-        interim += event.results[i][0].transcript;
-      }
-    }
-
-    interimTranscript=interim;
-    transcript.value = finalTranscript + interimTranscript;
-  };
-
-  recognition.onerror=(event)=>{
-    console.warn("SpeechRecognition error:", event.error);
-
-    if(event.error=== "not-allowed" || event.error=== "permission-denied"){
-      manualStop=true;
-      clearTimeout(recognitionRestartTimer);
-      recognitionRestartTimer=null;
-      statusText.textContent="Microphone permission denied.";
-      isListening=false;
-      recognitionStarting=false;
-      ring.classList.remove("active");
-      return;
-    }
-
-    statusText.textContent="Speech recognition error, retrying...";
-  };
-
-  recognition.onend=()=>{
-    isListening=false;
-    recognitionStarting=false;
-    ring.classList.remove("active");
-
-    interimTranscript="";
-    transcript.value=finalTranscript;
-
-    if(recognition === currentRecognition) recognition=null;
-    if(recognitionStopResolver){
-      const resolveStop=recognitionStopResolver;
-      recognitionStopResolver=null;
-      resolveStop();
-    }
-
-    if(answerSubmitted || manualStop) return;
-
-    statusText.textContent="Reconnecting microphone...";
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer=setTimeout(()=>{
-      recognitionRestartTimer=null;
-      if(!manualStop && !answerSubmitted && !isListening && !recognitionStarting){
-        startListening(true);
-      }
-    }, 300);
-  };
-
-  recognitionStarting=true;
-  try{
-    recognition.start();
-  }catch(error){
-    recognitionStarting=false;
-    console.warn("SpeechRecognition failed to start:", error);
-    if(error.name === "InvalidStateError"){
-      isListening=true;
-      return;
-    }
-    statusText.textContent="Unable to start microphone.";
-  }
-}
-
-function stopListening(){
-  manualStop=true;
-  clearTimeout(silenceTimer);
-  clearTimeout(recognitionRestartTimer);
-  recognitionRestartTimer=null;
-
-  const activeRecognition=recognition;
-  const shouldWaitForEnd=!!activeRecognition && (isListening || recognitionStarting);
-  let stopped=Promise.resolve();
-
-  if(shouldWaitForEnd){
-    stopped=new Promise(resolve=>{ recognitionStopResolver=resolve; });
-  }
-
-  if(activeRecognition){
+  async function startListening(){
+    if(phase.value !== "LISTENING" || recordingStarted) return;
+    recordingStarted=true;audioChunks=[];recordedAudio=null;pendingTranscript="";answerStartedAt=Date.now();
+    answerId=crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    finishButton.textContent="Submit Answer";
     try{
-      activeRecognition.stop();
+      if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("This browser does not support microphone recording.");
+      mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(phase.value !== "LISTENING"){
+        mediaStream.getTracks().forEach(track=>track.stop());mediaStream=null;recordingStarted=false;return;
+      }
+      const candidates=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus"];
+      const mimeType=candidates.find(type=>MediaRecorder.isTypeSupported(type));
+      const recorderOptions={audioBitsPerSecond:48000};
+      if(mimeType)recorderOptions.mimeType=mimeType;
+      mediaRecorder=new MediaRecorder(mediaStream,recorderOptions);
+      mediaRecorder.addEventListener("dataavailable",event=>{if(event.data?.size)audioChunks.push(event.data);});
+      mediaRecorder.addEventListener("error",()=>{statusText.textContent="Microphone recording failed. Check microphone access and try again.";});
+      mediaRecorder.start(1000);
+      statusText.textContent="Recording... Pause as long as you need; press Submit Answer when finished.";
+    }catch(error){
+      recordingStarted=false;
+      if(mediaStream)mediaStream.getTracks().forEach(track=>track.stop());mediaStream=null;
+      statusText.textContent=error?.name==="NotAllowedError" ? "Microphone access is blocked. Allow microphone access, then try again." : "Could not start microphone recording. Check your microphone and browser permissions.";
+      finishButton.style.display="inline-block";finishButton.disabled=false;
+    }
+  }
+  async function transcribeAudio(blob){
+    const form=new FormData();
+    const extension=blob.type.includes("ogg")?"ogg":"webm";
+    form.append("file",blob,`answer.${extension}`);
+    const context=[ROLE,INTERVIEW_TYPE==="technical"?SPEECH_CONTEXT_TERMS.join(", "):"",currentQuestion?.question||""]
+      .filter(Boolean).join(". ").slice(0,500);
+    form.append("context_prompt",context);
+    const response=await fetch("/api/transcribe",{method:"POST",body:form});
+    if(!response.ok)throw new Error("Transcription service unavailable");
+    const data=await response.json();
+    return (data.transcript||"").replace(/\s+/g," ").trim();
+  }
+  function speak(text){
+    return new Promise(resolve=>{
+      const generation=++speechGeneration;
+      if(!( "speechSynthesis" in window))return resolve();
+      window.speechSynthesis.cancel();
+      const utterance=new SpeechSynthesisUtterance(text);utterance.rate=1;utterance.pitch=1;
+      const finish=()=>{if(generation===speechGeneration)resolve();};utterance.onend=finish;utterance.onerror=finish;
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+  async function presentQuestion(data){
+    currentQuestion=data;document.getElementById("current-question").textContent=data.question;
+    if(data.is_final){setPhase("FINISHED","Interview complete.");await speak(data.question);await evaluateAll();return;}
+    setPhase("SPEAKING","AI is speaking...");await speak(data.question);
+    if(phase.value !== "SPEAKING")return;
+    setPhase("LISTENING","Starting microphone...");recordingStarted=false;startListening();
+  }
+  async function sendAnswer(answer,skip=false,prelocked=false,endAfter=false){
+    if((answerInFlight && !prelocked) || phase.value === "PROCESSING" && !prelocked || phase.value === "FINISHED")return;
+    answerInFlight=true;setPhase("PROCESSING","Saving your response...");await stopRecording();recordingStarted=false;
+    try{
+      const requestBody=JSON.stringify({session_id:SESSION_ID,turn_id:currentQuestion.turn_id,answer_id:answerId||(crypto.randomUUID?crypto.randomUUID():`${Date.now()}`),answer,skip,end_interview:endAfter,duration:Math.max(1,Math.round((Date.now()-answerStartedAt)/1000))});
+      let response;
+      for(let attempt=0;attempt<2;attempt++){
+        try{response=await fetch("/api/interview/respond",{method:"POST",headers:{"Content-Type":"application/json"},body:requestBody});if(response.ok)break;}
+        catch(_){if(attempt===1)throw new Error("Connection unavailable");}
+      }
+      if(!response.ok)throw new Error("Could not process that answer");
+      const next=await response.json();answerInFlight=false;
+      if(endAfter)await evaluateAll();else await presentQuestion(next);
     }catch(_){
-      if(recognitionStopResolver){
-        const resolveStop=recognitionStopResolver;
-        recognitionStopResolver=null;
-        resolveStop();
+      answerInFlight=false;
+      if(phase.value !== "FINISHED"){
+        setPhase("LISTENING","Connection interrupted. Your answer is saved here; press Submit Answer again.");
       }
     }
-    if(recognition === activeRecognition) recognition=null;
   }
-
-  isListening=false;
-  recognitionStarting=false;
-  const ring=document.getElementById("voice-ring");
-  ring.classList.remove("active");
-  return stopped;
-}
-
-
-
-/* TYPING INACTIVITY */
-
-const transcriptBox=document.getElementById("live-transcript");
-
-transcriptBox.addEventListener("input",()=>{
-    // Automatic submission disabled to require manual 'Submit Answer'
-});
-
-
-
-/* INTERVIEW FLOW */
-
-async function runInterview(){
-
-document.getElementById("loading-phase").style.display="none";
-document.getElementById("interview-phase").style.display="block";
-
-showQuestion();
-
-}
-
-
-
-function showQuestion(){
-
-if(currentIdx >= TOTAL_QUESTIONS){
-evaluateAll();
-return;
-}
-
-answerSubmitted=false;
-
-const qObj = questions[currentIdx];
-const q = typeof qObj === "string" ? qObj : qObj.question;
-const category = (typeof qObj === "object" && qObj.category) ? qObj.category : "";
-const isCoding = category === "coding";
-
-document.getElementById("question-counter").textContent =
-`Question ${currentIdx+1} / ${TOTAL_QUESTIONS}`;
-
-document.getElementById("current-question").textContent = q;
-
-document.getElementById("live-transcript").value="";
-
-clearTimeout(typingTimer);
-
-/* Always require manual submit */
-manualSubmitMode = true;
-
-document.getElementById("btn-submit-answer").style.display = "inline-block";
-
-if (isCoding) {
-  transcriptBox.style.minHeight = "220px";
-  transcriptBox.placeholder = "Explain your approach, write pseudocode, or paste a code snippet...";
-} else {
-  transcriptBox.style.minHeight = "80px";
-  transcriptBox.placeholder = "Type your answer or code here...";
-}
-
-/* Disable typing while AI speaks */
-
-transcriptBox.disabled=true;
-
-stopListening();
-speak(q).then(()=>{
-
-transcriptBox.disabled=false;
-
-/* Clear transcript. Recording stays OFF until user clicks Start Recording */
-document.getElementById("live-transcript").value = "";
-
-});
-
-}
-
-
-
-async function finishAnswer(){
-
-if(answerSubmitted) return;
-
-const answer=document.getElementById("live-transcript").value.trim();
-await processAnswer(answer||"(no response)", 30);
-
-}
-
-async function processAnswer(answerText, duration = 30){
-    if(answerSubmitted) return;
-
-    answerSubmitted=true;
-    clearTimeout(typingTimer);
-    stopListening();
-
-    const qObj = questions[currentIdx];
-    const questionText = typeof qObj === 'string' ? qObj : qObj.question || qObj;
-
-    answers.push({
-        question: questionText,
-        answer: answerText || "(no response)",
-        duration: duration,
-    });
-
-    currentIdx++;
-
-    if(answers.length >= TOTAL_QUESTIONS){
-        evaluateAll();
-        return;
+  async function submitAnswer(endAfter=false){
+    if(phase.value !== "LISTENING" || answerInFlight)return;
+    if(!recordedAudio && (!recordingStarted || !mediaRecorder || mediaRecorder.state !== "recording")){
+      statusText.textContent="Microphone is starting. Please wait, then press Submit Answer.";
+      if(!recordingStarted)startListening();
+      return;
     }
-
-    if(currentIdx >= questions.length){
-        const history = answers.map(item => ({
-            question: item.question,
-            answer: item.answer,
-        }));
-        const nextQuestion = await fetchNextQuestion(history);
-        questions.push(nextQuestion);
+    answerInFlight=true;
+    setPhase("PROCESSING","Transcribing your answer...");
+    let audio;
+    try{audio=recordedAudio || await stopRecording();recordingStarted=false;}
+    catch(_){answerInFlight=false;setPhase("LISTENING","The recording could not be finalized. Press Submit Answer again to retry.");return;}
+    let answer=pendingTranscript;
+    try{if(!answer)answer=audio ? await transcribeAudio(audio) : "";}catch(_){
+      answerInFlight=false;setPhase("LISTENING","Transcription is unavailable right now. Your recording is kept; press Submit Answer to try again.");
+      recordedAudio=audio;return;
     }
-
-    showQuestion();
-}
-
-
-
-/* API */
-
-async function fetchNextQuestion(history = []){
-
-    const resp = await fetch("/api/interview/next_question", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            user_id: USER_ID,
-            history: history,
-            role: ROLE,
-            level: LEVEL,
-        }),
-    });
-
-    if(!resp.ok){
-        throw new Error(`Failed to fetch next question (${resp.status})`);
+    if(!answer){
+      answerInFlight=false;
+      setPhase("LISTENING","No speech was recognized. Your recording is kept; press Submit Answer to try again.");
+      recordedAudio=audio;return;
     }
-
-    return await resp.json();
-
-}
-
-
-
-async function evaluateAll(){
-
-document.getElementById("interview-phase").style.display="none";
-document.getElementById("evaluating-phase").style.display="block";
-
-const resp = await fetch("/api/interview/evaluate",{
-
-method:"POST",
-headers:{"Content-Type":"application/json"},
-
-body:JSON.stringify({
-
-role:ROLE,
-level:LEVEL,
-questions_answers:answers
-
-})
-
-});
-
-if(!resp.ok){
-  document.getElementById("eval-status").textContent = "Evaluation failed. Please try again.";
-  return;
-}
-
-const data = await resp.json();
-window.location.href = data.redirect_url || "/report";
-
-}
-
-
-
-/* INIT */
-
-if (!ROUND_EXECUTABLE) {
-  document.getElementById("loading-status").textContent =
-    "This round is not available yet. Please choose Technical Interview for now.";
-} else {
-
-(async function(){
-
-try{
-
-questions=[await fetchNextQuestion([])];
-
-if(!questions.length) throw new Error("No questions");
-
-document.getElementById("loading-status").textContent="Starting interview...";
-
-setTimeout(runInterview,600);
-
-}catch(err){
-
-document.getElementById("loading-status").textContent="Error loading questions";
-
-}
-
+    pendingTranscript=answer;
+    recordingStarted=true;await sendAnswer(answer,false,true,endAfter);
+  }
+  async function evaluateAll(endEarly=false){
+    if(evaluationInFlight)return;evaluationInFlight=true;await stopRecording();recordingStarted=false;
+    if(window.speechSynthesis)window.speechSynthesis.cancel();
+    setPhase("FINISHED","Preparing your interview feedback...");
+    document.getElementById("interview-phase").style.display="none";document.getElementById("evaluating-phase").style.display="block";
+    try{
+      const response=await fetch("/api/interview/evaluate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:SESSION_ID,end_interview:endEarly})});
+      if(!response.ok)throw new Error("Evaluation unavailable");
+      const data=await response.json();window.location.href=data.redirect_url||"/report";
+    }catch(_){evaluationInFlight=false;document.getElementById("eval-status").textContent="Feedback could not be prepared. Please try again.";}
+  }
+  finishButton.addEventListener("click",()=>submitAnswer(false));
+  document.getElementById("btn-skip").addEventListener("click",()=>{
+    if(phase.value !== "LISTENING" && phase.value !== "IDLE")return;
+    if(!answerId)answerId=crypto.randomUUID?crypto.randomUUID():`${Date.now()}`;
+    sendAnswer("(skipped)",true,false);
+  });
+  document.getElementById("btn-end-early").addEventListener("click",async()=>{
+    if(answerInFlight || evaluationInFlight)return;
+    if(phase.value === "LISTENING" && (recordingStarted || recordedAudio || pendingTranscript)){
+      await submitAnswer(true);return;
+    }
+    if(!(currentQuestion && (currentQuestion.turn_count || 0) > 0)){
+      window.location.href="/";return;
+    }
+    await evaluateAll(true);
+  });
+  async function init(){
+    if(!ROUND_EXECUTABLE){document.getElementById("loading-status").textContent="This interview round is not available yet.";return;}
+    try{
+      const response=await fetch("/api/interview/next_question",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:SESSION_ID})});
+      if(!response.ok)throw new Error("Interview unavailable");
+      const first=await response.json();document.getElementById("loading-phase").style.display="none";document.getElementById("interview-phase").style.display="block";await presentQuestion(first);
+    }catch(_){document.getElementById("loading-status").textContent="We couldn’t start the interview. Please return to setup and try again.";}
+  }
+  init();
 })();
-
-}
-
-})();
-
 </script>
 
 </body>

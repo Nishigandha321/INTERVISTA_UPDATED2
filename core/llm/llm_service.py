@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import hashlib
+import re
 from typing import Optional, Dict, Any
 from groq import Groq
 from config.settings import Settings
@@ -47,6 +48,10 @@ class LLMCache:
         self.cache.clear()
 
 
+class LLMRateLimitBackoff(RuntimeError):
+    """Raised locally while the provider's last rate-limit cooldown is active."""
+
+
 class LLMService:
     """Centralized LLM service - single point of all LLM interactions."""
     
@@ -57,7 +62,21 @@ class LLMService:
             ttl_seconds=self.settings.cache_ttl_seconds,
             max_size=self.settings.cache_max_size
         )
+        self._rate_limit_until = 0.0
+        self._rate_limit_message = ""
         logger.info(f"LLMService initialized with model: {self.settings.model_name}")
+
+    def _record_rate_limit(self, exc: Exception) -> None:
+        message = str(exc)
+        seconds = 5.0
+        minute_match = re.search(r"try again in\s+(\d+)m([\d.]+)s", message, re.IGNORECASE)
+        second_match = re.search(r"try again in\s+([\d.]+)s", message, re.IGNORECASE)
+        if minute_match:
+            seconds = int(minute_match.group(1)) * 60 + float(minute_match.group(2))
+        elif second_match:
+            seconds = float(second_match.group(1))
+        self._rate_limit_until = max(self._rate_limit_until, time.monotonic() + max(seconds, 1.0))
+        self._rate_limit_message = message
     
     async def invoke(
         self,
@@ -70,6 +89,9 @@ class LLMService:
         reasoning_effort: Optional[str] = None
     ) -> str:
         """Execute single LLM call."""
+
+        if time.monotonic() < self._rate_limit_until:
+            raise LLMRateLimitBackoff(self._rate_limit_message or "LLM provider rate limit cooldown is active")
         
         if use_cache and self.settings.cache_enabled:
             cached = self.cache.get(prompt)
@@ -117,7 +139,10 @@ class LLMService:
                     for part in content
                 )
             if not isinstance(content, str) or not content.strip():
-                for field in ("reasoning", "reasoning_content", "output_text", "text"):
+                # Reasoning fields are internal model traces, never the answer.
+                # In particular, using them here can expose prose such as
+                # "We need to output JSON..." to downstream JSON parsers.
+                for field in ("output_text", "text"):
                     alternate = getattr(message, field, None)
                     if isinstance(alternate, str) and alternate.strip():
                         content = alternate
@@ -138,6 +163,10 @@ class LLMService:
             return result
         
         except Exception as e:
+            status_code = getattr(e, "status_code", None)
+            error_text = str(e).casefold()
+            if status_code == 429 or "rate_limit_exceeded" in error_text or "tokens per minute" in error_text or "tokens per day" in error_text:
+                self._record_rate_limit(e)
             logger.error(f"LLM invocation failed: {str(e)}")
             raise
     

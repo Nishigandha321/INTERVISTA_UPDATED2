@@ -357,14 +357,11 @@
             {% if not ns.first %}, {% endif %}{{ topic }}{% set ns.first = false %}
           {% endfor %}
         {% endfor %}
-        — then attempt a fresh Technical Interview to track your improvement.
+        — then try the same interview type again to track your improvement.
       </span>
     </div>
-    <form action="/start_interview/" method="post" style="margin:0;">
-      <input type="hidden" name="role"  value="{{ report.candidate_profile.role }}">
-      <input type="hidden" name="level" value="{{ report.candidate_profile.level }}">
-      <input type="hidden" name="interview_mode"   value="placement_simulation">
-      <input type="hidden" name="selected_round"   value="technical">
+    <form action="/interview/repeat" method="post" style="margin:0;">
+      <input type="hidden" name="report_id" value="{{ report_id }}">
       <button type="submit" class="next-action-btn">Retry Interview →</button>
     </form>
   </div>
@@ -518,11 +515,8 @@
 <!-- ACTIONS                                                -->
 <!-- ═══════════════════════════════════════════════════════ -->
 <div class="actions">
-  <form action="/start_interview/" method="post">
-    <input type="hidden" name="role"  value="{{ report.candidate_profile.role }}">
-    <input type="hidden" name="level" value="{{ report.candidate_profile.level }}">
-    <input type="hidden" name="interview_mode"  value="placement_simulation">
-    <input type="hidden" name="selected_round"  value="technical">
+  <form action="/interview/repeat" method="post">
+    <input type="hidden" name="report_id" value="{{ report_id }}">
     <button type="submit" class="btn">Give Interview Again</button>
   </form>
   <a href="/index"   class="btn outline">Update Details</a>

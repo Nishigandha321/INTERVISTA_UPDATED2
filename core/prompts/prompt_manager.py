@@ -81,6 +81,7 @@ class PromptManager:
 Analyze the role, designation, resume, learning context, and optional job targeting:
 Role: {role}
 Designation: {level}
+Interview type: {interview_type}
 Company (optional): {company_name}
 Job Description (optional): {job_description}
 Resume context: {resume_text}
@@ -88,6 +89,11 @@ Matched resume skills vs JD: {matched_skills}
 Missing JD skills (gaps): {missing_skills}
 Completed module titles: {completed_modules}
 Course topics: {course_topics}
+Previous question: {current_question}
+Candidate's latest answer: {candidate_latest_answer}
+Answer analysis, strengths, and weaknesses: {answer_analysis}
+Recent structured question/answer history: {recent_conversation}
+Candidate state and skill signals: {candidate_state}
 Previous questions asked:
 {previous_questions}
 
@@ -96,7 +102,8 @@ Avoid repeating any of the above questions.
 Used categories so far:
 {used_categories}
 
-Ask a NEW question from a DIFFERENT category if possible.
+Follow the interviewer action and conversation decision context in Additional instructions. For FOLLOW_UP, CLARIFICATION, DEEPEN, CHALLENGE, or BEHAVIORAL_PROBE, stay on the current topic and ground the question in the candidate's latest answer. Change category only for CHANGE_TOPIC or MOVE_ON.
+Write one natural, grammatically complete question about one idea. Do not concatenate questions, use fragments, or refer to an ordinary audience noun (such as customers or users) as if it were a technology. Ask about drawbacks or trade-offs only when the candidate named a concrete tool, feature, or design choice. If the answer does not identify one, ask a short clarification about what the candidate meant; never invent a tool, action, result, or trade-off.
 
 WHEN Job Description is provided and not "N/A":
 - Target company: {company_name}
@@ -113,11 +120,18 @@ WHEN Job Description is empty or "N/A":
 - Prioritize weak areas, course topics, and role-specific applied scenarios.
 - Categories: behavioral|situational|technical|logical|project-specific
 
-TECHNICAL INTERVIEW ROUND (8-10 questions total):
-- Mix question types across the full interview — resume, projects, skills, JD, company-specific, coding (discussion format), and technical concepts.
-- Avoid repeating categories; vary depth and difficulty.
+TECHNICAL INTERVIEW:
+- Ask a concise main question or one contextual probe according to the supplied decision context.
+- Use resume, projects, skills, JD, company-specific, coding (discussion format), and technical concepts across the interview.
+- Keep a probe on the current topic; use an uncovered category when the decision calls for a topic change.
 - For coding questions: ask in discussion format (e.g. "Explain how you would solve Two Sum", "Write pseudocode for Binary Search", "Explain BFS vs DFS"). Do NOT require runnable code or test cases.
 - Coding category: use category "coding" for algorithm/DS questions answered via explanation, pseudocode, or code snippets.
+
+HR INTERVIEW:
+- Keep the HR question pool and evaluation focus separate from technical interviews.
+- Ask about behavioral examples, motivation, collaboration, ownership, conflict, communication, or situational judgment, grounded in the candidate's resume and target role.
+- Do not turn an HR round into a technical knowledge question. Use only behavioral, situational, behavioral-company-fit, resume-based, project-specific, or company-specific categories.
+- Keep follow-ups tied to the candidate's latest example and ask for actions, reasoning, or outcomes.
 
 Rules:
 - NEVER repeat previous questions
@@ -227,7 +241,9 @@ Question:
 Candidate Answer:
 {answer}
 
-Generate an ideal candidate response in first-person. The ideal answer should be a polished, interview-ready reply with concrete examples, clear structure, and personal ownership. Do NOT include guidance, instructions, evaluation commentary, or interviewer perspective.
+Interview-specific evaluation instructions: {instruction_override}
+
+Generate an ideal candidate response that directly answers the exact Question shown above (including a follow-up question, if present). Keep it concise: at most six short lines, one key point per line. Use first person only when a personal example is appropriate. Do not invent candidate experiences; use a generic illustrative answer when the question asks for concepts. Do NOT include guidance, instructions, evaluation commentary, interviewer perspective, tables, markdown decoration, or a lecture.
 
 Return ONLY valid JSON:
 {{
@@ -239,7 +255,7 @@ Return ONLY valid JSON:
  "problem_solving_score": <number 0-100>,
  "strengths": ["..."],
  "weaknesses": ["..."],
- "ideal_answer": "A concise first-person candidate answer with a strong example, not guidance.",
+ "ideal_answer": "A direct answer to this exact question, in no more than six concise lines.",
  "weak_topics": ["topic1", "topic2"],
  "C": <float 0.0-1.0>,
  "K": <float 0.0-1.0>,

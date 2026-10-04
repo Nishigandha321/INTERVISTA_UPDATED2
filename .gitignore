@@ -5,3 +5,4 @@ __pycache__/
 *.db
 jobprepmate.db
 .aider*
+.pytest_cache/

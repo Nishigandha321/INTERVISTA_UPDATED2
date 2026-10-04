@@ -4,6 +4,7 @@
 
 import json
 import re
+import time
 from typing import Optional, Dict, Any, List, Callable
 from core.llm.llm_service import LLMService
 from core.prompts.prompt_manager import PromptManager, PromptCategory
@@ -128,7 +129,10 @@ class BaseChain:
             )
         
         except Exception as e:
-            logger.error(f"Chain execution failed: {str(e)}")
+            if isinstance(e, ValueError) and "json parsing failed" in str(e).casefold():
+                logger.warning(f"Chain returned malformed JSON; caller may retry: {str(e)}")
+            else:
+                logger.error(f"Chain execution failed: {str(e)}")
             self._log_step("error", f"Chain failed", {"error": str(e)})
             
             return ChainResult(
@@ -175,7 +179,7 @@ class BaseChain:
                 pass
         
         # If all strategies fail, raise error (no silent fallback)
-        logger.error(f"Cannot parse JSON from LLM output: {cleaned_output[:200]}")
+        logger.warning(f"Cannot parse JSON from LLM output: {cleaned_output[:200]}")
         raise ValueError("JSON parsing failed on all strategies")
     
     def _extract_json_strict(self, text: str) -> Optional[Dict]:
@@ -312,6 +316,7 @@ class InterviewQuestionChain(BaseChain):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, name="InterviewQuestionChain", **kwargs)
+        self._interview_context_cache: Dict[tuple[str, str], tuple[float, str]] = {}
     
     async def invoke(self, input_data: Dict[str, Any], **kwargs) -> ChainResult:
         """Generate interview questions with relevant context from RAG."""
@@ -324,6 +329,7 @@ class InterviewQuestionChain(BaseChain):
             "prompt_name": "interviewer_system_prompt",
             "role": input_data.get("role", "Software Engineer"),
             "level": input_data.get("level", "Junior"),
+            "interview_type": input_data.get("interview_type", "technical"),
             "count": input_data.get("count", 5),
             "resume_text": input_data.get("resume_text", ""),
             "company_name": input_data.get("company_name") or "N/A",
@@ -332,6 +338,11 @@ class InterviewQuestionChain(BaseChain):
             "missing_skills": ", ".join(input_data.get("missing_skills", [])) if isinstance(input_data.get("missing_skills", []), list) else str(input_data.get("missing_skills", "") or "N/A"),
             "completed_modules": ", ".join(input_data.get("completed_modules", [])) if isinstance(input_data.get("completed_modules", []), list) else str(input_data.get("completed_modules", "")),
             "course_topics": ", ".join(input_data.get("course_topics", [])) if isinstance(input_data.get("course_topics", []), list) else str(input_data.get("course_topics", "")),
+            "current_question": input_data.get("current_question", "N/A"),
+            "candidate_latest_answer": input_data.get("candidate_latest_answer", "N/A"),
+            "answer_analysis": json.dumps(input_data.get("answer_analysis", {}), ensure_ascii=False),
+            "recent_conversation": json.dumps(input_data.get("recent_conversation", []), ensure_ascii=False),
+            "candidate_state": json.dumps(input_data.get("candidate_state", {}), ensure_ascii=False),
             "previous_questions": "\n".join(previous_questions) if isinstance(previous_questions, list) else str(previous_questions),
             "used_categories": ", ".join(used_categories) if isinstance(used_categories, list) else str(used_categories),
             "instruction_override": input_data.get("instruction_override") or "None",
@@ -339,12 +350,15 @@ class InterviewQuestionChain(BaseChain):
         
         # Use RAG to retrieve similar interview questions and best practices
         use_rag = kwargs.pop("use_rag", True)
+        max_tokens = kwargs.pop("max_tokens", 450)
         
         return await super().invoke(
             prepared,
             use_rag=use_rag,
             json_mode=True,
+            response_format={"type": "json_object"},
             use_cache=False,  # Always disable cache for dynamic questions
+            max_tokens=max_tokens,
             **kwargs
         )
     
@@ -354,6 +368,10 @@ class InterviewQuestionChain(BaseChain):
         
         role = input_data.get("role", "")
         level = input_data.get("level", "")
+        cache_key = (str(role).casefold().strip(), str(level).casefold().strip())
+        cached = self._interview_context_cache.get(cache_key)
+        if cached and time.monotonic() - cached[0] < 1800:
+            return cached[1]
         
         query = f"interview questions for {role} at {level} level"
         
@@ -370,7 +388,9 @@ class InterviewQuestionChain(BaseChain):
             pipeline = get_or_create_rag_pipeline()
             
             if pipeline.initialized:
-                return await pipeline.retrieve_context(query, context_obj)
+                context = await pipeline.retrieve_context(query, context_obj)
+                self._interview_context_cache[cache_key] = (time.monotonic(), context or "")
+                return context or ""
         except Exception as e:
             logger.debug(f"RAG retrieval skipped: {str(e)}")
         
@@ -441,17 +461,20 @@ class EvaluationChain(BaseChain):
             "answer": input_data.get("answer", ""),
             "company_name": input_data.get("company_name") or "N/A",
             "job_description": input_data.get("job_description") or "N/A",
+            "instruction_override": input_data.get("instruction_override") or "None",
         }
         
         # Use RAG to retrieve evaluation rubrics
         use_rag = kwargs.pop("use_rag", True)
         
         # Disable cache for unique evaluations
+        kwargs.pop("max_tokens", None)
         return await super().invoke(
             prepared,
             use_rag=use_rag,
             json_mode=True,
             use_cache=False,
+            max_tokens=900,
             **kwargs
         )
     

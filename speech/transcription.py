@@ -1,7 +1,9 @@
 import os
 import re
-import time
 import subprocess
+import sys
+import tempfile
+import types
 from typing import Optional
 
 # Common STT mis-hearings — normalize before scoring (not a full spell-checker)
@@ -30,13 +32,63 @@ def normalize_transcript(text: str) -> str:
     cleaned = str(text).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     cleaned = re.sub(r"(.)\1{3,}", r"\1\1", cleaned)  # collapse long char repeats
-    lower = cleaned.lower()
     for pattern, repl in _STT_REPLACEMENTS:
-        lower = re.sub(pattern, repl, lower, flags=re.IGNORECASE)
-    # Preserve sentence casing loosely: capitalize first char
-    if lower:
-        lower = lower[0].upper() + lower[1:] if len(lower) > 1 else lower.upper()
-    return lower
+        cleaned = re.sub(pattern, repl, cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+_TECH_CONTEXT = re.compile(
+    r"\b(technolog(?:y|ies)|stack|framework|library|database|backend|project|"
+    r"programming|language|api|server|deployment|configuration)\b", re.IGNORECASE
+)
+_TECH_ALIASES = (
+    (r"\b(?:dot\s+e\s*n\s*v|d[\s.-]*o[\s.-]*t\s+e[\s.-]*n[\s.-]*v|dot\s+env)\b", ".env"),
+    (r"\b(?:c|see)\s+plus\s+plus\b", "C++"),
+    (r"\bnode\s+(?:dot\s*)?js\b", "Node.js"),
+    (r"\bpost\s+gres(?:ql)?\b", "PostgreSQL"),
+)
+_KNOWN_TECH_TERMS = {
+    "python", "c++", "java", "javascript", "typescript", "fastapi", "postgresql",
+    "postgres", "sqlalchemy", "jwt", "api", "rest", "react", "node.js", "docker",
+    "git", "github", "kubernetes", "tensorflow", "opencv", "cnn", "rnn", "llm",
+    "rag", "nlp", "ml", "ai", ".env", "json", "xml", "http", "https", "oauth",
+    "crud", "orm", "sql", "nosql", "django", "flask", "redis", "mongodb", "aws",
+    "azure", "gcp", "kafka", "graphql", "sqlite", "mysql", "pytorch",
+}
+
+
+def normalize_candidate_transcript(
+    raw_transcript: str,
+    interview_type: str = "technical",
+    context: str = "",
+) -> dict:
+    """Conservatively normalize obvious technical ASR formatting while retaining raw text."""
+    raw = str(raw_transcript or "")
+    normalized = " ".join(raw.split())
+    changed = False
+    technical = str(interview_type or "").casefold() == "technical"
+    if technical and _TECH_CONTEXT.search(context or ""):
+        for pattern, replacement in _TECH_ALIASES:
+            updated = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+            changed = changed or updated != normalized
+            normalized = updated
+
+    suspicious_term = ""
+    # An isolated, unfamiliar name in a technology-stack answer is ambiguous. Ask
+    # the candidate instead of guessing a correction or treating it as a technology.
+    if technical and _TECH_CONTEXT.search(context or ""):
+        terms = re.findall(r"\b(?:use(?:d)?|using|with|including)\s+([A-Z][a-z]{3,})\b", raw)
+        known = {term.casefold() for term in _KNOWN_TECH_TERMS}
+        for term in terms:
+            if term.casefold() not in known and not re.search(r"\b" + re.escape(term) + r"\b", context):
+                suspicious_term = term
+                break
+    return {
+        "raw_transcript": raw,
+        "normalized_transcript": normalized,
+        "normalization_applied": changed,
+        "suspicious_term": suspicious_term,
+    }
 
 
 FILLER_WORDS = {
@@ -57,6 +109,22 @@ FILLER_WORDS = {
     "kind of",
     "sort of",
 }
+
+try:
+    import numba  # noqa: F401
+except (ImportError, OSError):
+    # Whisper only uses numba to JIT its optional word-timing helpers. Those
+    # helpers are not enabled for interview transcription, so keep the Python
+    # implementations usable when the optional LLVM runtime is unavailable.
+    numba_fallback = types.ModuleType("numba")
+
+    def _no_op_jit(*args, **kwargs):
+        if args and callable(args[0]):
+            return args[0]
+        return lambda function: function
+
+    numba_fallback.jit = _no_op_jit
+    sys.modules["numba"] = numba_fallback
 
 try:
     import whisper
@@ -190,13 +258,14 @@ def _get_whisper_model():
     return _whisper_model
 
 
-def transcribe_audio(file_path: str) -> str:
+def transcribe_audio(file_path: str, context_prompt: str = "") -> str:
     if whisper is None:
-        print("[warning] whisper is not installed; audio transcription is unavailable.")
-        return ""
+        raise RuntimeError("Whisper is not installed")
 
+    converted_path = None
     try:
-        converted_path = f"converted_{int(time.time() * 1000)}.wav"
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            converted_path = temp_audio.name
         _convert_audio(file_path, converted_path)
         model = _get_whisper_model()
         result = model.transcribe(
@@ -204,9 +273,15 @@ def transcribe_audio(file_path: str) -> str:
             language="en",
             beam_size=5,
             temperature=0,
-            initial_prompt="Technical job interview answer with complete sentences.",
+            initial_prompt=(context_prompt or "Interview response with complete sentences.")[:500],
         )
         return normalize_transcript(result.get("text", "").strip())
     except Exception as exc:
         print(f"[transcription] error: {exc}")
-        return ""
+        raise RuntimeError("Audio transcription failed") from exc
+    finally:
+        if converted_path and os.path.exists(converted_path):
+            try:
+                os.remove(converted_path)
+            except OSError:
+                pass
