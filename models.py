@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     Float,
     JSON,
+    UniqueConstraint,
 )
 from database import Base
 from datetime import datetime
@@ -115,6 +116,50 @@ class InterviewAttempt(Base):
     answer = Column(Text)       # better than String for long answers
     feedback = Column(Text)     # better than String for long feedback
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class CodingAttempt(Base):
+    """One isolated, two-question coding round for a user."""
+
+    __tablename__ = "coding_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(String, default="in_progress", nullable=False, index=True)
+    total_questions = Column(Integer, default=2, nullable=False)
+    attempted_questions = Column(Integer, default=0, nullable=False)
+    solved_questions = Column(Integer, default=0, nullable=False)
+    total_test_cases = Column(Integer, default=6, nullable=False)
+    passed_test_cases = Column(Integer, default=0, nullable=False)
+    overall_score = Column(Float, default=0.0, nullable=False)
+    execution_count = Column(Integer, default=0, nullable=False)
+
+
+class CodingQuestionResult(Base):
+    """Assignment and final execution result for one of an attempt's two questions."""
+
+    __tablename__ = "coding_question_results"
+    __table_args__ = (
+        UniqueConstraint("coding_attempt_id", "question_order", name="uq_coding_attempt_question_order"),
+        UniqueConstraint("coding_attempt_id", "question_id", name="uq_coding_attempt_question_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    coding_attempt_id = Column(Integer, ForeignKey("coding_attempts.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(Integer, nullable=False)
+    question_order = Column(Integer, nullable=False)
+    language = Column(String, nullable=True)
+    passed_test_cases = Column(Integer, default=0, nullable=False)
+    total_test_cases = Column(Integer, default=3, nullable=False)
+    score = Column(Float, default=0.0, nullable=False)
+    execution_status = Column(String, default="pending", nullable=False)
+    execution_count = Column(Integer, default=0, nullable=False)
+    source_hash = Column(String(64), nullable=True)
+    source_code = Column(Text, nullable=True)
+    test_results = Column(JSON, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
 
 
 class Interview(Base):

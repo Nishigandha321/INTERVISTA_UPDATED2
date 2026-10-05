@@ -197,7 +197,11 @@
       .filter(Boolean).join(". ").slice(0,500);
     form.append("context_prompt",context);
     const response=await fetch("/api/transcribe",{method:"POST",body:form});
-    if(!response.ok)throw new Error("Transcription service unavailable");
+    if(!response.ok){
+      let detail="";
+      try{const data=await response.json();if(typeof data.detail==="string")detail=data.detail;}catch(_){}
+      throw new Error(detail||"Transcription is unavailable right now.");
+    }
     const data=await response.json();
     return (data.transcript||"").replace(/\s+/g," ").trim();
   }
@@ -251,8 +255,8 @@
     try{audio=recordedAudio || await stopRecording();recordingStarted=false;}
     catch(_){answerInFlight=false;setPhase("LISTENING","The recording could not be finalized. Press Submit Answer again to retry.");return;}
     let answer=pendingTranscript;
-    try{if(!answer)answer=audio ? await transcribeAudio(audio) : "";}catch(_){
-      answerInFlight=false;setPhase("LISTENING","Transcription is unavailable right now. Your recording is kept; press Submit Answer to try again.");
+    try{if(!answer)answer=audio ? await transcribeAudio(audio) : "";}catch(error){
+      answerInFlight=false;setPhase("LISTENING",`${error?.message||"Transcription is unavailable right now."} Your recording is kept; press Submit Answer to try again.`);
       recordedAudio=audio;return;
     }
     if(!answer){

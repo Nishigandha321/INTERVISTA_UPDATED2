@@ -1,0 +1,682 @@
+[
+  {
+    "id": 1,
+    "title": "Two Sum",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Given an array of integers and a target value, find the indices of two different elements whose sum equals the target. Assume exactly one valid pair exists.",
+    "constraints": "1 <= n <= 1000; -10^4 <= array values <= 10^4",
+    "input_format": "First line: n.\nSecond line: n space-separated integers.\nThird line: target.",
+    "output_format": "Print the two 0-based indices in increasing order.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n    int target; cin >> target;\n\n    int first_index = -1, second_index = -1;\n    // TODO: find the two indices whose values sum to target.\n    cout << first_index << \" \" << second_index << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    target = data[1 + n]\n    first_index = second_index = -1\n    # TODO: find the two indices whose values sum to target.\n    print(first_index, second_index)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    int target; cin >> target;\n    unordered_map<int,int> seen;\n    for (int i = 0; i < n; i++) {\n        int need = target - a[i];\n        if (seen.count(need)) {\n            cout << seen[need] << \" \" << i;\n            return 0;\n        }\n        seen[a[i]] = i;\n    }\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    target = int(input())\n    seen = {}\n    for i, x in enumerate(a):\n        need = target - x\n        if need in seen:\n            print(seen[need], i)\n            return\n        seen[x] = i\n\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "4\n2 7 11 15\n9\n",
+        "expected_output": "0 1",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "5\n3 2 4 8 7\n9\n",
+        "expected_output": "1 2",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "6\n5 1 9 3 7 2\n10\n",
+        "expected_output": "0 2",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "title": "Maximum Element",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Given an array of integers, find and print its largest element.",
+    "constraints": "1 <= n <= 10000",
+    "input_format": "First line: n.\nSecond line: n space-separated integers.",
+    "output_format": "Print the largest integer.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    int maximum = nums[0];\n    // TODO: update maximum while examining nums.\n    cout << maximum << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    maximum = nums[0]\n    # TODO: update maximum while examining nums.\n    print(maximum)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int x, ans = INT_MIN;\n    for (int i = 0; i < n; i++) { cin >> x; ans = max(ans, x); }\n    cout << ans;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    print(max(a))\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n3 8 2 10 6\n",
+        "expected_output": "10",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "4\n-5 -2 -9 -1\n",
+        "expected_output": "-1",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "6\n12 7 19 4 19 3\n",
+        "expected_output": "19",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Second Largest Element",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Given an array of distinct integers, print the second largest element.",
+    "constraints": "2 <= n <= 10000; all elements are distinct.",
+    "input_format": "First line: n.\nSecond line: n distinct integers.",
+    "output_format": "Print the second-largest integer.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    int largest = INT_MIN, second_largest = INT_MIN;\n    // TODO: find the second-largest value among the distinct integers.\n    cout << second_largest << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    largest = second_largest = -1\n    # TODO: find the second-largest value among the distinct integers.\n    print(second_largest)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    long long largest = LLONG_MIN, second = LLONG_MIN, x;\n    for (int i = 0; i < n; i++) {\n        cin >> x;\n        if (x > largest) { second = largest; largest = x; }\n        else if (x > second) second = x;\n    }\n    cout << second;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    a.sort(reverse=True)\n    print(a[1])\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n10 4 7 2 9\n",
+        "expected_output": "9",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "4\n-1 -8 -3 -5\n",
+        "expected_output": "-3",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "6\n20 5 17 11 3 14\n",
+        "expected_output": "17",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Move Zeroes",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Move all zeroes in the array to the end while keeping the relative order of non-zero elements unchanged.",
+    "constraints": "1 <= n <= 10000",
+    "input_format": "First line: n.\nSecond line: n space-separated integers.",
+    "output_format": "Print the array after moving all zeroes to the end.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    // TODO: move zeroes to the end without changing non-zero order.\n    for (int i = 0; i < n; ++i) cout << nums[i] << (i + 1 == n ? '\\n' : ' ');\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    # TODO: move zeroes to the end without changing non-zero order.\n    print(*nums)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    int pos = 0;\n    for (int x : a) if (x != 0) a[pos++] = x;\n    while (pos < n) a[pos++] = 0;\n    for (int i = 0; i < n; i++) cout << a[i] << (i + 1 == n ? '\\\\n' : ' ');\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    result = [x for x in a if x != 0]\n    result += [0] * (n - len(result))\n    print(*result)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n0 1 0 3 12\n",
+        "expected_output": "1 3 12 0 0",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "6\n1 0 2 0 0 5\n",
+        "expected_output": "1 2 5 0 0 0",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "4\n0 0 0 7\n",
+        "expected_output": "7 0 0 0",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "title": "Remove Duplicates from Sorted Array",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Given a sorted array, remove duplicate values in-place conceptually and print the unique values in their original sorted order.",
+    "constraints": "1 <= n <= 10000; the array is sorted in non-decreasing order.",
+    "input_format": "First line: n.\nSecond line: n sorted integers.",
+    "output_format": "Print the unique values in sorted order, separated by spaces.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    vector<int> unique_values = nums;\n    // TODO: collect each sorted value once in unique_values.\n    for (int i = 0; i < (int)unique_values.size(); ++i)\n        cout << unique_values[i] << (i + 1 == (int)unique_values.size() ? '\\n' : ' ');\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    unique_values = nums.copy()\n    # TODO: collect each sorted value once in unique_values.\n    print(*unique_values)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    for (int i = 0; i < n; i++) {\n        if (i == 0 || a[i] != a[i-1]) {\n            if (i != 0) cout << ' ';\n            cout << a[i];\n        }\n    }\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    ans = []\n    for x in a:\n        if not ans or ans[-1] != x:\n            ans.append(x)\n    print(*ans)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "7\n1 1 2 2 2 3 4\n",
+        "expected_output": "1 2 3 4",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "5\n2 2 2 2 2\n",
+        "expected_output": "2",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "8\n-3 -3 -1 0 0 4 4 7\n",
+        "expected_output": "-3 -1 0 4 7",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "title": "Best Time to Buy and Sell Stock",
+    "difficulty": "Easy",
+    "topic": "Arrays",
+    "description": "Given daily stock prices, find the maximum profit possible by buying once and selling once later. If no profit is possible, print 0.",
+    "constraints": "1 <= n <= 10000; 0 <= prices[i] <= 10000",
+    "input_format": "First line: n.\nSecond line: n space-separated prices.",
+    "output_format": "Print the maximum profit, or 0 if no profit is possible.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> prices(n);\n    for (int &price : prices) cin >> price;\n\n    int minimum_price = INT_MAX, maximum_profit = 0;\n    // TODO: scan prices and update the minimum and best later sale profit.\n    cout << maximum_profit << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    prices = data[1:1 + n]\n    minimum_price = float(\"inf\")\n    maximum_profit = 0\n    # TODO: scan prices and update the minimum and best later sale profit.\n    print(maximum_profit)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int minPrice = INT_MAX, profit = 0, x;\n    for (int i = 0; i < n; i++) {\n        cin >> x;\n        minPrice = min(minPrice, x);\n        profit = max(profit, x - minPrice);\n    }\n    cout << profit;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    prices = list(map(int, input().split()))\n    mn = float('inf')\n    profit = 0\n    for x in prices:\n        mn = min(mn, x)\n        profit = max(profit, x - mn)\n    print(profit)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "6\n7 1 5 3 6 4\n",
+        "expected_output": "5",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "5\n7 6 4 3 1\n",
+        "expected_output": "0",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "7\n2 4 1 8 3 9 5\n",
+        "expected_output": "8",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "title": "Reverse a String",
+    "difficulty": "Easy",
+    "topic": "Strings",
+    "description": "Given a string without spaces, print the string in reverse order.",
+    "constraints": "1 <= length <= 10000",
+    "input_format": "One line containing a string without spaces.",
+    "output_format": "Print the string in reverse order.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string value; cin >> value;\n    string reversed;\n    // TODO: build the reverse of value in reversed.\n    cout << reversed << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    value = sys.stdin.read().strip()\n    reversed_value = \"\"\n    # TODO: build the reverse of value in reversed_value.\n    print(reversed_value)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    string s; cin >> s;\n    reverse(s.begin(), s.end());\n    cout << s;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    s = input().strip()\n    print(s[::-1])\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "hello\n",
+        "expected_output": "olleh",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "Intervista\n",
+        "expected_output": "atsivretnI",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "abcd\n",
+        "expected_output": "dcba",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "title": "Palindrome Check",
+    "difficulty": "Easy",
+    "topic": "Strings",
+    "description": "Check whether the given string reads the same forward and backward.",
+    "constraints": "1 <= length <= 10000; the string contains only letters and digits.",
+    "input_format": "One line containing a string of letters and digits.",
+    "output_format": "Print YES if it is a palindrome; otherwise print NO.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string value; cin >> value;\n    bool is_palindrome = false;\n    // TODO: compare characters from both ends of value.\n    cout << (is_palindrome ? \"YES\" : \"NO\") << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    value = sys.stdin.read().strip()\n    is_palindrome = False\n    # TODO: compare characters from both ends of value.\n    print(\"YES\" if is_palindrome else \"NO\")\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    string s; cin >> s;\n    string t = s;\n    reverse(t.begin(), t.end());\n    cout << (s == t ? \"YES\" : \"NO\");\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    s = input().strip()\n    print(\"YES\" if s == s[::-1] else \"NO\")\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "madam\n",
+        "expected_output": "YES",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "hello\n",
+        "expected_output": "NO",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "level\n",
+        "expected_output": "YES",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "title": "Valid Anagram",
+    "difficulty": "Easy",
+    "topic": "Strings",
+    "description": "Given two lowercase strings, determine whether one string is an anagram of the other.",
+    "constraints": "1 <= length <= 10000; both strings contain lowercase English letters only.",
+    "input_format": "First line: string s.\nSecond line: string t.",
+    "output_format": "Print YES if s and t are anagrams; otherwise print NO.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string s, t; cin >> s >> t;\n    bool is_anagram = false;\n    // TODO: compare the character frequencies of s and t.\n    cout << (is_anagram ? \"YES\" : \"NO\") << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    lines = sys.stdin.read().splitlines()\n    s, t = lines[0].strip(), lines[1].strip()\n    is_anagram = False\n    # TODO: compare the character frequencies of s and t.\n    print(\"YES\" if is_anagram else \"NO\")\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    string a, b; cin >> a >> b;\n    sort(a.begin(), a.end());\n    sort(b.begin(), b.end());\n    cout << (a == b ? \"YES\" : \"NO\");\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    a = input().strip()\n    b = input().strip()\n    print(\"YES\" if sorted(a) == sorted(b) else \"NO\")\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "listen\nsilent\n",
+        "expected_output": "YES",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "hello\nworld\n",
+        "expected_output": "NO",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "triangle\nintegral\n",
+        "expected_output": "YES",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "title": "First Non-Repeating Character",
+    "difficulty": "Easy",
+    "topic": "Strings",
+    "description": "Given a lowercase string, print the first character that appears exactly once. If no such character exists, print -1.",
+    "constraints": "1 <= length <= 10000; lowercase English letters only.",
+    "input_format": "One line containing a lowercase string.",
+    "output_format": "Print the first non-repeating character, or -1 if none exists.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string value; cin >> value;\n    string answer = \"-1\";\n    // TODO: find the first character whose frequency is one.\n    cout << answer << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    value = sys.stdin.read().strip()\n    answer = \"-1\"\n    # TODO: find the first character whose frequency is one.\n    print(answer)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    string s; cin >> s;\n    int freq[26] = {};\n    for (char c : s) freq[c-'a']++;\n    for (char c : s) {\n        if (freq[c-'a'] == 1) { cout << c; return 0; }\n    }\n    cout << -1;\n    return 0;\n}",
+    "reference_solution_python": "from collections import Counter\ndef main():\n    s = input().strip()\n    freq = Counter(s)\n    for c in s:\n        if freq[c] == 1:\n            print(c)\n            return\n    print(-1)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "swiss\n",
+        "expected_output": "w",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "aabbc\n",
+        "expected_output": "c",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "aabbcc\n",
+        "expected_output": "-1",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "title": "Linear Search",
+    "difficulty": "Easy",
+    "topic": "Searching",
+    "description": "Given an array and a target value, find the first index at which the target occurs. Print -1 if it is not present.",
+    "constraints": "1 <= n <= 10000",
+    "input_format": "First line: n.\nSecond line: n space-separated integers.\nThird line: target.",
+    "output_format": "Print the first 0-based index of target, or -1 if it is absent.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n    int target; cin >> target;\n\n    int index = -1;\n    // TODO: find the first position containing target.\n    cout << index << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    target = data[1 + n]\n    index = -1\n    # TODO: find the first position containing target.\n    print(index)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    int target; cin >> target;\n    for (int i = 0; i < n; i++) {\n        if (a[i] == target) { cout << i; return 0; }\n    }\n    cout << -1;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    target = int(input())\n    for i, x in enumerate(a):\n        if x == target:\n            print(i)\n            return\n    print(-1)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n4 8 2 9 6\n9\n",
+        "expected_output": "3",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "6\n1 5 3 5 7 9\n5\n",
+        "expected_output": "1",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "4\n10 20 30 40\n25\n",
+        "expected_output": "-1",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "title": "Binary Search",
+    "difficulty": "Easy",
+    "topic": "Searching",
+    "description": "Given a sorted array and a target value, find the target's 0-based index using binary search. Print -1 if it is not present.",
+    "constraints": "1 <= n <= 10000; array is sorted in non-decreasing order.",
+    "input_format": "First line: n.\nSecond line: n sorted integers.\nThird line: target.",
+    "output_format": "Print the 0-based index of target, or -1 if it is absent.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n    int target; cin >> target;\n\n    int index = -1;\n    // TODO: use binary search to find target in nums.\n    cout << index << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    target = data[1 + n]\n    index = -1\n    # TODO: use binary search to find target in nums.\n    print(index)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    int target; cin >> target;\n    int l = 0, r = n - 1;\n    while (l <= r) {\n        int m = l + (r - l) / 2;\n        if (a[m] == target) { cout << m; return 0; }\n        if (a[m] < target) l = m + 1;\n        else r = m - 1;\n    }\n    cout << -1;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    target = int(input())\n    l, r = 0, n - 1\n    while l <= r:\n        m = (l + r) // 2\n        if a[m] == target:\n            print(m)\n            return\n        if a[m] < target:\n            l = m + 1\n        else:\n            r = m - 1\n    print(-1)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "6\n1 3 5 7 9 11\n7\n",
+        "expected_output": "3",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "5\n2 4 6 8 10\n2\n",
+        "expected_output": "0",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "5\n2 4 6 8 10\n7\n",
+        "expected_output": "-1",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "title": "Bubble Sort",
+    "difficulty": "Easy",
+    "topic": "Sorting",
+    "description": "Sort the given array in ascending order using bubble sort.",
+    "constraints": "1 <= n <= 5000",
+    "input_format": "First line: n.\nSecond line: n space-separated integers.",
+    "output_format": "Print the integers sorted in ascending order, separated by spaces.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    // TODO: sort nums using bubble sort.\n    for (int i = 0; i < n; ++i) cout << nums[i] << (i + 1 == n ? '\\n' : ' ');\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    # TODO: sort nums using bubble sort.\n    print(*nums)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    for (int i = 0; i < n - 1; i++) {\n        bool swapped = false;\n        for (int j = 0; j < n - i - 1; j++) {\n            if (a[j] > a[j+1]) {\n                swap(a[j], a[j+1]);\n                swapped = true;\n            }\n        }\n        if (!swapped) break;\n    }\n    for (int i = 0; i < n; i++) cout << a[i] << (i + 1 == n ? '\\\\n' : ' ');\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    for i in range(n - 1):\n        swapped = False\n        for j in range(n - i - 1):\n            if a[j] > a[j + 1]:\n                a[j], a[j + 1] = a[j + 1], a[j]\n                swapped = True\n        if not swapped:\n            break\n    print(*a)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n5 1 4 2 8\n",
+        "expected_output": "1 2 4 5 8",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "4\n9 7 5 3\n",
+        "expected_output": "3 5 7 9",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "6\n1 2 3 4 5 6\n",
+        "expected_output": "1 2 3 4 5 6",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "title": "Merge Two Sorted Arrays",
+    "difficulty": "Easy",
+    "topic": "Sorting",
+    "description": "Given two sorted arrays, merge them into one sorted array.",
+    "constraints": "1 <= n,m <= 10000; both arrays are sorted.",
+    "input_format": "First line: n.\nSecond line: n sorted integers.\nThird line: m.\nFourth line: m sorted integers.",
+    "output_format": "Print all values from both arrays in sorted order, separated by spaces.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> first(n);\n    for (int &value : first) cin >> value;\n    int m; cin >> m;\n    vector<int> second(m);\n    for (int &value : second) cin >> value;\n\n    vector<int> merged = first;\r\n    merged.insert(merged.end(), second.begin(), second.end());\n    // TODO: merge first and second into merged in sorted order.\n    for (int i = 0; i < (int)merged.size(); ++i)\n        cout << merged[i] << (i + 1 == (int)merged.size() ? '\\n' : ' ');\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    first = data[1:1 + n]\n    m_index = 1 + n\n    m = data[m_index]\n    second = data[m_index + 1:m_index + 1 + m]\n    merged = first + second\n    # TODO: merge first and second into merged in sorted order.\n    print(*merged)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    vector<int> a(n);\n    for (int &x : a) cin >> x;\n    int m; cin >> m;\n    vector<int> b(m);\n    for (int &x : b) cin >> x;\n    int i = 0, j = 0;\n    while (i < n || j < m) {\n        if (j == m || (i < n && a[i] <= b[j])) cout << a[i++];\n        else cout << b[j++];\n        if (i < n || j < m) cout << ' ';\n    }\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    m = int(input())\n    b = list(map(int, input().split()))\n    i = j = 0\n    ans = []\n    while i < n or j < m:\n        if j == m or (i < n and a[i] <= b[j]):\n            ans.append(a[i]); i += 1\n        else:\n            ans.append(b[j]); j += 1\n    print(*ans)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "3\n1 4 7\n4\n2 3 6 8\n",
+        "expected_output": "1 2 3 4 6 7 8",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "2\n1 5\n3\n2 4 6\n",
+        "expected_output": "1 2 4 5 6",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "4\n0 3 3 9\n3\n1 3 10\n",
+        "expected_output": "0 1 3 3 3 9 10",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "title": "Sort 0s, 1s and 2s",
+    "difficulty": "Medium",
+    "topic": "Arrays",
+    "description": "Given an array containing only 0, 1 and 2, sort it in ascending order without using a general-purpose sorting function.",
+    "constraints": "1 <= n <= 10000; every element is 0, 1 or 2.",
+    "input_format": "First line: n.\nSecond line: n integers, each 0, 1, or 2.",
+    "output_format": "Print the values sorted in ascending order, separated by spaces.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int n; cin >> n;\n    vector<int> nums(n);\n    for (int &value : nums) cin >> value;\n\n    // TODO: sort the values using the 0/1/2 partition approach.\n    for (int i = 0; i < n; ++i) cout << nums[i] << (i + 1 == n ? '\\n' : ' ');\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    data = list(map(int, sys.stdin.read().split()))\n    n = data[0]\n    nums = data[1:1 + n]\n    # TODO: sort the values using the 0/1/2 partition approach.\n    print(*nums)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int c[3] = {};\n    for (int i = 0, x; i < n; i++) { cin >> x; c[x]++; }\n    bool first = true;\n    for (int v = 0; v <= 2; v++) {\n        for (int k = 0; k < c[v]; k++) {\n            if (!first) cout << ' ';\n            cout << v; first = false;\n        }\n    }\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    n = int(input())\n    a = list(map(int, input().split()))\n    c = [0, 0, 0]\n    for x in a:\n        c[x] += 1\n    ans = [0] * c[0] + [1] * c[1] + [2] * c[2]\n    print(*ans)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "6\n2 0 2 1 1 0\n",
+        "expected_output": "0 0 1 1 2 2",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "5\n2 2 1 0 1\n",
+        "expected_output": "0 1 1 2 2",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "7\n0 1 2 0 2 1 0\n",
+        "expected_output": "0 0 0 1 1 2 2",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "title": "Valid Parentheses",
+    "difficulty": "Easy",
+    "topic": "Stack",
+    "description": "Given a string containing only (), {}, and [], determine whether every opening bracket is closed by the correct bracket in the correct order.",
+    "constraints": "1 <= length <= 10000",
+    "input_format": "One line containing a string of brackets (), {}, and [].",
+    "output_format": "Print YES if the bracket string is valid; otherwise print NO.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string brackets; cin >> brackets;\n    stack<char> opened;\n    bool valid = false;\n    // TODO: use opened to validate matching bracket pairs and order.\n    cout << (valid ? \"YES\" : \"NO\") << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    brackets = sys.stdin.read().strip()\n    opened = []\n    valid = False\n    # TODO: validate matching bracket pairs and their order.\n    print(\"YES\" if valid else \"NO\")\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    string s; cin >> s;\n    stack<char> st;\n    for (char c : s) {\n        if (c == '(' || c == '[' || c == '{') st.push(c);\n        else {\n            if (st.empty()) { cout << \"NO\"; return 0; }\n            char o = st.top(); st.pop();\n            if ((c == ')' && o != '(') || (c == ']' && o != '[') || (c == '}' && o != '{')) {\n                cout << \"NO\"; return 0;\n            }\n        }\n    }\n    cout << (st.empty() ? \"YES\" : \"NO\");\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    s = input().strip()\n    st = []\n    pairs = {')':'(', ']':'[', '}':'{'}\n    for c in s:\n        if c in '([{':\n            st.append(c)\n        else:\n            if not st or st.pop() != pairs[c]:\n                print(\"NO\")\n                return\n    print(\"YES\" if not st else \"NO\")\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "()[]{}\n",
+        "expected_output": "YES",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "([{}])\n",
+        "expected_output": "YES",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "(]\n",
+        "expected_output": "NO",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "title": "Queue Using Array",
+    "difficulty": "Easy",
+    "topic": "Queue",
+    "description": "Implement a queue using an array. Process operations ENQUEUE x, DEQUEUE, and FRONT. For every FRONT operation, print the front value. It is guaranteed that DEQUEUE and FRONT are only used when the queue is non-empty.",
+    "constraints": "1 <= number of operations <= 10000",
+    "input_format": "First line: q.\nEach of the next q lines contains ENQUEUE x, DEQUEUE, or FRONT.",
+    "output_format": "For each FRONT operation, print the front value on its own line.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int q; cin >> q;\n    queue<int> values;\n    while (q--) {\n        string operation; cin >> operation;\n        if (operation == \"ENQUEUE\") {\n            int value; cin >> value;\n            // TODO: add value to the back of the queue.\n        } else if (operation == \"DEQUEUE\") {\n            // TODO: remove the front value.\n        } else if (operation == \"FRONT\") {\n            // TODO: print the front value followed by a newline.\n        }\n    }\n    return 0;\n}",
+    "starter_code_python": "import sys\nfrom collections import deque\n\ndef main():\n    lines = sys.stdin.read().splitlines()\n    q = int(lines[0])\n    values = deque()\n    for line in lines[1:1 + q]:\n        parts = line.split()\n        operation = parts[0]\n        if operation == \"ENQUEUE\":\n            value = int(parts[1])\n            # TODO: add value to the back of the queue.\n        elif operation == \"DEQUEUE\":\n            # TODO: remove the front value.\n            pass\n        elif operation == \"FRONT\":\n            # TODO: print the front value on its own line.\n            pass\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    int q; cin >> q;\n    queue<int> qu;\n    while (q--) {\n        string op; cin >> op;\n        if (op == \"ENQUEUE\") {\n            int x; cin >> x; qu.push(x);\n        } else if (op == \"DEQUEUE\") {\n            qu.pop();\n        } else {\n            cout << qu.front() << '\\n';\n        }\n    }\n    return 0;\n}",
+    "reference_solution_python": "from collections import deque\ndef main():\n    q = int(input())\n    qu = deque()\n    for _ in range(q):\n        parts = input().split()\n        if parts[0] == \"ENQUEUE\":\n            qu.append(int(parts[1]))\n        elif parts[0] == \"DEQUEUE\":\n            qu.popleft()\n        else:\n            print(qu[0])\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\nENQUEUE 10\nENQUEUE 20\nFRONT\nDEQUEUE\nFRONT\n",
+        "expected_output": "10\n20",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "6\nENQUEUE 5\nENQUEUE 7\nDEQUEUE\nENQUEUE 9\nFRONT\nFRONT\n",
+        "expected_output": "7\n7",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "7\nENQUEUE 3\nENQUEUE 4\nDEQUEUE\nENQUEUE 8\nDEQUEUE\nFRONT\nFRONT\n",
+        "expected_output": "8\n8",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "title": "Factorial Using Recursion",
+    "difficulty": "Easy",
+    "topic": "Recursion",
+    "description": "Given a non-negative integer n, calculate n! using recursion.",
+    "constraints": "0 <= n <= 12",
+    "input_format": "One line containing a non-negative integer n.",
+    "output_format": "Print n factorial.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nlong long factorial(int n) {\n    if (n <= 1) return 1;\n    // TODO: return n multiplied by factorial(n - 1).\n    return 1; // Temporary value so the starter compiles.\n}\n\nint main() {\n    int n; cin >> n;\n    cout << factorial(n) << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef factorial(n):\n    if n <= 1:\n        return 1\n    # TODO: return n multiplied by factorial(n - 1).\n    return 1  # Temporary value so the starter runs.\n\ndef main():\n    n = int(sys.stdin.read().strip())\n    print(factorial(n))\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nlong long factorial(int n) {\n    if (n <= 1) return 1;\n    return n * factorial(n - 1);\n}\nint main() {\n    int n; cin >> n;\n    cout << factorial(n);\n    return 0;\n}",
+    "reference_solution_python": "def factorial(n):\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n\ndef main():\n    n = int(input())\n    print(factorial(n))\n\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "5\n",
+        "expected_output": "120",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "0\n",
+        "expected_output": "1",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "10\n",
+        "expected_output": "3628800",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "title": "Fibonacci Number",
+    "difficulty": "Easy",
+    "topic": "Recursion",
+    "description": "Given n, print the nth Fibonacci number where F(0)=0 and F(1)=1.",
+    "constraints": "0 <= n <= 30",
+    "input_format": "One line containing an integer n.",
+    "output_format": "Print the nth Fibonacci number, where F(0) = 0 and F(1) = 1.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nlong long fibonacci(int n) {\n    if (n <= 1) return n;\n    // TODO: compute fibonacci(n - 1) + fibonacci(n - 2).\n    return 0; // Temporary value so the starter compiles.\n}\n\nint main() {\n    int n; cin >> n;\n    cout << fibonacci(n) << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    # TODO: compute fibonacci(n - 1) + fibonacci(n - 2).\n    return 0  # Temporary value so the starter runs.\n\ndef main():\n    n = int(sys.stdin.read().strip())\n    print(fibonacci(n))\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nlong long fib(int n) {\n    if (n <= 1) return n;\n    return fib(n-1) + fib(n-2);\n}\nint main() {\n    int n; cin >> n;\n    cout << fib(n);\n    return 0;\n}",
+    "reference_solution_python": "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\ndef main():\n    n = int(input())\n    print(fib(n))\n\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "0\n",
+        "expected_output": "0",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "7\n",
+        "expected_output": "13",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "10\n",
+        "expected_output": "55",
+        "is_sample": true
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "title": "Greatest Common Divisor",
+    "difficulty": "Easy",
+    "topic": "Math / Number Theory",
+    "description": "Given two positive integers, find their greatest common divisor using the Euclidean algorithm.",
+    "constraints": "1 <= a,b <= 10^9",
+    "input_format": "One line containing two positive integers a and b.",
+    "output_format": "Print the greatest common divisor of a and b.",
+    "starter_code_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    long long a, b; cin >> a >> b;\n    long long answer = 0;\n    // TODO: use the Euclidean algorithm to compute gcd(a, b).\n    cout << answer << '\\n';\n    return 0;\n}",
+    "starter_code_python": "import sys\n\ndef main():\n    a, b = map(int, sys.stdin.read().split())\n    answer = 0\n    # TODO: use the Euclidean algorithm to compute gcd(a, b).\n    print(answer)\n\nif __name__ == \"__main__\":\n    main()",
+    "reference_solution_cpp": "#include <bits/stdc++.h>\nusing namespace std;\nint main() {\n    long long a, b; cin >> a >> b;\n    while (b) {\n        long long t = a % b;\n        a = b;\n        b = t;\n    }\n    cout << a;\n    return 0;\n}",
+    "reference_solution_python": "def main():\n    a, b = map(int, input().split())\n    while b:\n        a, b = b, a % b\n    print(a)\nif __name__ == \"__main__\":\n    main()",
+    "test_cases": [
+      {
+        "test_number": 1,
+        "input": "48 18\n",
+        "expected_output": "6",
+        "is_sample": true
+      },
+      {
+        "test_number": 2,
+        "input": "100 25\n",
+        "expected_output": "25",
+        "is_sample": true
+      },
+      {
+        "test_number": 3,
+        "input": "17 31\n",
+        "expected_output": "1",
+        "is_sample": true
+      }
+    ]
+  }
+]

@@ -44,6 +44,13 @@ class Settings:
     
     # Database Configuration
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./test.db")
+
+    # Isolated Coding Round execution provider. Credentials stay server-side.
+    onlinecompiler_base_url: str = os.getenv(
+        "ONLINECOMPILER_BASE_URL", "https://api.onlinecompiler.io"
+    ).strip().rstrip("/")
+    onlinecompiler_api_key: str = os.getenv("ONLINECOMPILER_API_KEY", "")
+    onlinecompiler_timeout_seconds: float = 35.0
     
     # API Configuration
     api_host: str = os.getenv("API_HOST", "127.0.0.1")

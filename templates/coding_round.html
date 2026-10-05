@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coding Round · Intervista</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/profile-dashboard.css">
+  <link rel="stylesheet" href="/static/coding/coding.css">
+  <script>
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        const base = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/";
+        const worker = `self.MonacoEnvironment={baseUrl:'${base}'};importScripts('${base}vs/base/worker/workerMain.js');`;
+        return `data:text/javascript;charset=utf-8,${encodeURIComponent(worker)}`;
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script defer src="/static/coding/coding.js"></script>
+</head>
+<body class="coding-page intervista-app" data-username="{{ username }}">
+  <aside class="intervista-sidebar">
+    <a href="/" class="brand"><span class="brand-mark">✧</span><span>INTERVISTA</span><b>‹</b></a>
+    <div class="sidebar-profile"><span class="initial">{{ username[:1]|upper }}</span><div><strong>{{ username }}</strong><small>Candidate</small></div></div>
+    <nav class="primary-nav">
+      <a href="/profile"><i>⌂</i>Dashboard</a>
+      <a href="/index"><i>◉</i>Mock Interviews</a>
+      <a class="subnav" href="/index#full-simulation">Full Simulation</a>
+      <a class="subnav" href="/index#individual-practice">Individual Practice</a>
+      <a class="is-active" href="/coding"><i>⌘</i>Coding Round</a>
+      <span class="nav-disabled"><i>◌</i>GD <em>SOON</em></span>
+      <a href="/interview-history"><i>◷</i>Interview History</a>
+    </nav>
+    <nav class="account-nav"><a href="/profile"><i>◯</i>Profile</a><a class="signout" href="/logout"><i>↪</i>Logout</a></nav>
+  </aside>
+
+  <main class="intervista-main coding-main">
+    <header class="app-page-header coding-page-header">
+      <div><p class="eyebrow">INTERVISTA / CODING ROUND</p><h1>Coding Round</h1><p class="lede">Solve two coding questions with Python or C++ and review your results.</p></div>
+      <div id="attempt-progress" class="attempt-progress">Starting attempt…</div>
+    </header>
+    <div id="coding-error" class="coding-alert" role="alert" hidden></div>
+    <section class="coding-workspace">
+      <article class="app-panel problem-pane">
+        <div class="problem-title-row"><div><p id="question-position" class="coding-eyebrow">QUESTION</p><h2 id="question-title">Loading question…</h2></div><span id="question-difficulty" class="difficulty-pill"></span></div>
+        <p id="question-topic" class="topic-label"></p>
+        <section class="problem-section"><h3>Problem</h3><div id="question-description" class="problem-copy"></div></section>
+        <section class="problem-section"><h3>Constraints</h3><div id="question-constraints" class="problem-copy"></div></section>
+        <div class="format-grid">
+          <section class="problem-section"><h3>Input Format</h3><div id="question-input-format" class="problem-copy"></div></section>
+          <section class="problem-section"><h3>Output Format</h3><div id="question-output-format" class="problem-copy"></div></section>
+        </div>
+        <section class="problem-section example-section"><h3>Examples</h3><div id="question-examples" class="question-examples"></div></section>
+      </article>
+
+      <article class="app-panel editor-pane">
+        <div class="editor-toolbar"><label for="language-select">Language</label><select id="language-select"><option value="cpp">C++</option><option value="python">Python</option></select><span id="execution-counter">0 / 3 executions · 0 / 6 this round</span></div>
+        <div id="monaco-editor" class="monaco-editor">Loading Monaco Editor…</div>
+        <div class="editor-actions"><button id="run-code" class="secondary-button" type="button">Run Code</button><button id="submit-code" class="primary-button" type="button">Submit Question</button></div>
+        <div id="execution-status" class="execution-status" aria-live="polite"></div>
+        <section class="execution-results"><div class="panel-title"><h2>Execution Results</h2><p>Compare your output with the required format.</p></div><div id="test-results" class="test-results"><p class="muted-copy">Run your code to see per-test results.</p></div></section>
+      </article>
+    </section>
+  </main>
+  <script>require.config({paths:{vs:"https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs"}});</script>
+</body>
+</html>

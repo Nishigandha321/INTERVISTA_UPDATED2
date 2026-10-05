@@ -37,6 +37,7 @@ from models import (
     UserProfile,
     Interview,
     UserSkillProfileRow,
+    CodingAttempt,
     Course,
     Module,
     ModuleAttempt,
@@ -86,6 +87,7 @@ from utils.bandit_logger import (
 )
 from utils.jd_analysis import analyze_resume_vs_jd
 from services.rl.rl_service import ContextualBandit, INTERVIEW_ACTIONS, COURSE_ACTIONS
+from services.coding.routes import create_coding_router
 from models import QTable, UserState
 from services.learning_resources.pipeline import ResourceRetrievalPipeline
 from services.learning_resources.ranker import SemanticRanker
@@ -128,6 +130,20 @@ def ensure_database_schema(engine):
                 conn.execute(text('ALTER TABLE user_profiles ADD COLUMN company_name VARCHAR;'))
             if "job_description" not in profile_cols:
                 conn.execute(text('ALTER TABLE user_profiles ADD COLUMN job_description TEXT;'))
+
+        # Coding Round was added after some databases already had this table.
+        # source_code is nullable, so adding it preserves every existing result.
+        if "coding_question_results" in table_names:
+            coding_result_cols = {
+                col["name"] for col in inspector.get_columns("coding_question_results")
+            }
+            if "source_code" not in coding_result_cols:
+                add_column = (
+                    "ALTER TABLE coding_question_results ADD COLUMN IF NOT EXISTS source_code TEXT"
+                    if engine.dialect.name == "postgresql"
+                    else "ALTER TABLE coding_question_results ADD COLUMN source_code TEXT"
+                )
+                conn.execute(text(add_column))
 
         # Phase 2: Ensure course_resources table exists
         if "course_resources" not in table_names:
@@ -1312,6 +1328,10 @@ def get_current_user(request: Request, db: Session):
         return None
     return db.query(User).filter(User.username == username).first()
 
+
+# Coding Round routes reuse this app's database and cookie-backed authentication.
+app.include_router(create_coding_router(get_current_user, get_db))
+
 def hash_password(password: str):
     # PBKDF2-SHA512 has no length limit; full password is always hashed
     return pwd_context.hash(password)
@@ -1730,7 +1750,11 @@ async def transcribe_endpoint(
         try:
             text = transcribe_audio(temp_input, context_prompt=context_prompt)
         except Exception as exc:
-            raise HTTPException(status_code=503, detail="Audio transcription is temporarily unavailable") from exc
+            logger.exception("Audio transcription failed")
+            detail = "Transcription is unavailable right now. Your recording is available to retry."
+            if isinstance(exc, RuntimeError) and str(exc) == "Whisper is not installed":
+                detail = "Speech recognition is not configured on the server. Your recording is available to retry."
+            raise HTTPException(status_code=503, detail=detail) from exc
 
     finally:
         # Clean up temp files
@@ -4240,11 +4264,24 @@ def interview_history_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/login")
     profile_row = get_or_create_user_profile(db, user)
     interviews = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.asc()).all()
+    coding_attempt_rows = (
+        db.query(CodingAttempt)
+        .filter(CodingAttempt.user_id == user.id, CodingAttempt.status == "completed")
+        .order_by(CodingAttempt.completed_at.desc())
+        .all()
+    )
+    coding_attempts = [{
+        "id": attempt.id,
+        "completed_at": attempt.completed_at,
+        "overall_score": attempt.overall_score,
+        "attempted_questions": attempt.attempted_questions,
+    } for attempt in coding_attempt_rows]
     timeline, _ = _build_unified_learning_timeline(
         interviews, [], profile_row, group_simulations=False
     )
     return templates.TemplateResponse(request, "interview_history.html", {
         "request": request, "username": user.username, "learning_timeline": timeline,
+        "coding_attempts": coding_attempts,
     })
 
 
