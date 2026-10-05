@@ -144,6 +144,10 @@ def ensure_database_schema(engine):
                     else "ALTER TABLE coding_question_results ADD COLUMN source_code TEXT"
                 )
                 conn.execute(text(add_column))
+            if "submission_count" not in coding_result_cols:
+                conn.execute(text("ALTER TABLE coding_question_results ADD COLUMN submission_count INTEGER NOT NULL DEFAULT 0"))
+            if "counted_source_hash" not in coding_result_cols:
+                conn.execute(text("ALTER TABLE coding_question_results ADD COLUMN counted_source_hash VARCHAR(64)"))
 
         # Phase 2: Ensure course_resources table exists
         if "course_resources" not in table_names:

@@ -25,7 +25,7 @@
 
   <main class="intervista-main coding-report-main">
     <header class="app-page-header">
-      <div><p class="eyebrow">COMPLETED CODING ROUND</p><h1>Coding Round Report</h1><p class="lede">Review your results and reference solutions.</p></div>
+      <div><p class="eyebrow">COMPLETED CODING ROUND</p><h1>Coding Round Report</h1><p class="lede">Review your results and submitted solutions.</p></div>
       <a href="/coding" class="primary-button">Start another Coding Round</a>
     </header>
     <section class="app-panel report-hero">
@@ -36,9 +36,11 @@
     {% for question in report.questions %}
     <article class="app-panel report-question">
       <header><div><p class="eyebrow">QUESTION {{ question.question_order }}</p><h2>{{ question.title }}</h2><p>{{ question.difficulty }} · {{ question.topic }}</p></div><div class="report-question-score"><strong>{{ '%.2f'|format(question.score) }}%</strong><span>{{ question.execution_status }}</span></div></header>
+      <p>{{ question.question }}</p>
       <p>Language: {{ 'C++' if question.language == 'cpp' else 'Python' }} · Passed: {{ question.passed_test_cases }}/{{ question.total_test_cases }}</p>
+      <p class="empty-copy">Visible test results are shown below; hidden cases contribute to the total.</p>
       <div class="report-tests">{% for test in question.tests %}<div class="report-test"><span>Test {{ test.test_number }}</span><strong class="{{ 'passed' if test.passed else 'failed' }}">{{ test.status }}</strong>{% if test.execution_time is not none %}<small>{{ test.execution_time }} s{% if test.memory is not none %} · {{ test.memory }} KB{% endif %}</small>{% endif %}{% if test.stderr %}<pre>{{ test.stderr }}</pre>{% endif %}</div>{% endfor %}</div>
-      <details class="reference-solution"><summary>View reference solution</summary><pre><code>{{ question.reference_solution }}</code></pre></details>
+      {% if question.submitted_solution %}<details class="reference-solution"><summary>View your submitted solution</summary><pre><code>{{ question.submitted_solution }}</code></pre></details>{% else %}<p class="empty-copy">Submitted code is unavailable for this earlier report.</p>{% endif %}
     </article>
     {% endfor %}
   </main>

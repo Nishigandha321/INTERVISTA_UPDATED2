@@ -60,7 +60,7 @@
     const selectedLanguage = payload.language || "cpp";
     currentLanguage = selectedLanguage;
     languageSelect.value = selectedLanguage;
-    text("execution-counter", `${payload.execution_count} / 3 executions · ${payload.attempt_execution_count ?? 0} / 6 this round`);
+    text("execution-counter", `${payload.submission_count ?? 0} / ${payload.submission_limit ?? 2} submissions`);
     const code = payload.saved_source_code ?? (selectedLanguage === "cpp" ? q.starter_code_cpp : q.starter_code_python);
     if (editor) {
       editor.setValue(code);
@@ -153,25 +153,25 @@
 
   function updateExecutionState(data) {
     renderResults(data.results || []);
-    text("execution-counter", `${data.execution_count ?? activeQuestion.execution_count} / 3 executions · ${data.attempt_execution_count ?? 0} / 6 this round`);
+    text("execution-counter", `${data.submission_count ?? activeQuestion.submission_count ?? 0} / ${data.submission_limit ?? activeQuestion.submission_limit ?? 2} submissions`);
   }
 
   async function runCode() {
     if (busy || !activeQuestion) return;
     clearError();
     setBusy(true);
-    statusBox.textContent = "Running the three server-side test cases…";
+    statusBox.textContent = "Evaluating your code against the server-side test suite…";
     try {
       const data = await api("/api/coding/run", { method: "POST", body: JSON.stringify(submissionBody()) });
       updateExecutionState(data);
-      statusBox.textContent = data.message || "Run complete. Submit unchanged code to finalize this question.";
+      statusBox.textContent = data.message || "Evaluation complete. Submit this result or revise your code for the remaining submission.";
     } catch (error) {
       if (error.data?.results) {
         updateExecutionState(error.data);
         const resultsCompleted = error.data.results.length === 3 && error.data.results.every(
           (item) => item.status && item.status !== "Not Run" && item.status !== "Execution Provider Error"
         );
-        if (resultsCompleted) {
+        if (resultsCompleted && !error.data.incomplete) {
           statusBox.textContent = `Run completed. ${error.message}`;
           return;
         }
@@ -189,6 +189,10 @@
     try {
       const data = await api("/api/coding/submit", { method: "POST", body: JSON.stringify(submissionBody()) });
       updateExecutionState(data);
+      if (data.can_retry) {
+        statusBox.textContent = data.message || "Some tests failed. Revise your code and use your second submission.";
+        return;
+      }
       if (data.completed) {
         statusBox.textContent = "Coding Round complete. Opening your report…";
         window.location.assign(data.result_url);

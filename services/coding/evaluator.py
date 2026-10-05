@@ -11,9 +11,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 DATASET_PATH = Path(__file__).resolve().parents[2] / "data" / "coding_questions.json"
 QUESTION_FIELDS = (
-    "id", "title", "description", "difficulty", "topic", "constraints",
+    "id", "title", "description", "difficulty", "topic", "constraints", "function_name",
     "input_format", "output_format", "starter_code_cpp", "starter_code_python",
 )
+PUBLIC_TEST_CASES = 3
+TOTAL_TEST_CASES = 5
 
 
 class CodingDatasetError(RuntimeError):
@@ -44,8 +46,12 @@ def load_question_bank() -> list[dict[str, Any]]:
         ):
             raise CodingDatasetError("The coding question bank is invalid.")
         cases = question.get("test_cases")
-        if not isinstance(cases, list) or len(cases) != 3:
-            raise CodingDatasetError("Each coding question must contain exactly three test cases.")
+        if not isinstance(cases, list) or len(cases) != TOTAL_TEST_CASES:
+            raise CodingDatasetError(f"Coding question {question_id} must contain exactly {TOTAL_TEST_CASES} test cases.")
+        if sum(1 for case in cases if isinstance(case, dict) and case.get("is_sample") is True) != PUBLIC_TEST_CASES:
+            raise CodingDatasetError(f"Coding question {question_id} must contain exactly {PUBLIC_TEST_CASES} public test cases.")
+        if sum(1 for case in cases if isinstance(case, dict) and case.get("is_sample") is False) != TOTAL_TEST_CASES - PUBLIC_TEST_CASES:
+            raise CodingDatasetError(f"Coding question {question_id} must contain exactly {TOTAL_TEST_CASES - PUBLIC_TEST_CASES} hidden test cases.")
         for case in cases:
             if not isinstance(case, dict) or not isinstance(case.get("input"), str) or not isinstance(
                 case.get("expected_output"), str
@@ -59,7 +65,7 @@ def find_question(question_id: int) -> dict[str, Any] | None:
 
 
 def select_question_ids(excluded_question_ids: set[int] | None = None) -> list[int]:
-    question_ids = [q["id"] for q in load_question_bank()]
+    question_ids = [question["id"] for question in load_question_bank()]
     excluded = excluded_question_ids or set()
     eligible = [question_id for question_id in question_ids if question_id not in excluded]
     if len(eligible) < 2:
@@ -71,8 +77,9 @@ def public_question(question: dict[str, Any]) -> dict[str, Any]:
     """Allowlist the prompt and its first public sample while an attempt is active."""
     public = {field: question[field] for field in QUESTION_FIELDS}
     cases = question.get("test_cases") or []
-    if cases:
-        public["examples"] = [{"input": cases[0]["input"], "output": cases[0]["expected_output"]}]
+    public_cases = [case for case in cases if case.get("is_sample") is True][:PUBLIC_TEST_CASES]
+    if public_cases:
+        public["examples"] = [{"input": case["input"], "output": case["expected_output"]} for case in public_cases]
     return public
 
 
@@ -143,5 +150,5 @@ def evaluate_service_error(test_number: int, message: str) -> dict[str, Any]:
 
 def score_tests(results: list[dict[str, Any]]) -> tuple[int, float]:
     passed = sum(1 for result in results if result.get("passed"))
-    total = 3
+    total = len(results) or TOTAL_TEST_CASES
     return passed, round(passed * 100.0 / total, 2)

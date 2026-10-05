@@ -5,22 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/static/styles.css" />
   <link rel="stylesheet" href="/static/intervista-ui.css" />
-  <title>Sign Up - Job PrepMate</title>
+  <title>Sign up · Intervista</title>
 </head>
-<body>
-  <div class="card form-card" aria-label="Create an Intervista account">
-    <h2>Create an Account</h2> <br>
+<body class="auth-page">
+  <a class="auth-brand" href="/" aria-label="Intervista home"><img src="/static/new_logo.png" alt="Intervista"><span>INTERVISTA</span></a>
+  <div class="card form-card auth-card" aria-label="Create an Intervista account">
+    <h1>Create your account</h1>
     <form method="post" action="/signup">
-      <label>Username:</label>
-      <input type="text" name="username" required>
+      <label>Username</label>
+      <input type="text" name="username" placeholder="Choose a username" required>
       <br>
-      <label>Password:</label>
-      <input type="password" name="password" required>
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Create a password" required>
       <br>
       <button type="submit" class="btn">Sign Up</button>
     </form>
     <p style="color: var(--primary-color);">{{message}}</p>
-    <p>Already have an account? <a href="/login" style="color:#c1fff0;">Login</a></p>
+    <p>Already have an account? <a href="/login">Sign in</a></p>
   </div>
 </body>
 </html>

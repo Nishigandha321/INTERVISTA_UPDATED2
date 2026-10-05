@@ -378,3 +378,63 @@ body.coding-page.intervista-app {
   .coding-page.intervista-app .editor-actions { flex-direction: column; }
   .coding-page.intervista-app .editor-actions button { width: 100%; }
 }
+
+/* Open, editorial coding workspace; keep the editor itself clearly framed. */
+.coding-page.intervista-app {
+  --coding-ink:#202a36;
+  --coding-muted:#778394;
+  --coding-line:#e7e7e8;
+  --coding-panel:#fff;
+  --coding-bg:#f8f8f7;
+  --coding-accent:#e85d34;
+}
+.coding-page.intervista-app .coding-page-header h1 { font-weight:620; letter-spacing:-.05em; }
+.coding-page.intervista-app .coding-workspace { gap:clamp(22px,3vw,40px); }
+.coding-page.intervista-app .problem-pane,
+.coding-page.intervista-app .editor-pane {
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.coding-page.intervista-app .problem-pane { padding:20px 4px 20px 0; }
+.coding-page.intervista-app .editor-pane { border-left:1px solid var(--coding-line); padding:0 0 0 28px; }
+.coding-page.intervista-app .problem-section { border-top-color:#e8e8e9; }
+.coding-page.intervista-app .problem-title-row h2 { font-weight:650; }
+.coding-page.intervista-app .problem-section h3 { font-weight:650; }
+.coding-page.intervista-app .difficulty-pill { border-color:#f4d9d0; background:#fff4ef; color:#bf4b2b; }
+.coding-page.intervista-app .topic-label { color:#d85a34; }
+.coding-page.intervista-app .question-example pre { border:0; border-left:2px solid #e8e8e9; border-radius:0; background:#f4f4f2; }
+.coding-page.intervista-app .editor-toolbar,
+.coding-page.intervista-app .editor-actions { border-color:#e7e7e8; }
+.coding-page.intervista-app .editor-toolbar select { border-color:#dedfe1; border-radius:8px; }
+.coding-page.intervista-app .attempt-progress { border-color:#f0d7cd; background:#fff4ef; color:#c65330; }
+.coding-report-page .report-hero,
+.coding-report-page .report-question {
+  border:0;
+  border-bottom:1px solid #e7e7e8;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.coding-report-page .report-question { padding:26px 0; }
+.coding-report-page .report-hero { padding:4px 0 26px; }
+.coding-report-page .report-question h2,
+.coding-report-page .report-hero h2 { color:#202a36; font-weight:650; }
+.coding-report-page .report-score { color:#d95a35; font-weight:650; }
+.coding-report-page .report-test {
+  border:0;
+  border-bottom:1px solid #e7e7e8;
+  border-radius:0;
+  background:transparent;
+  padding:11px 0;
+}
+.coding-report-page .reference-solution { border-color:#e7e7e8; }
+.coding-report-page .reference-solution summary { color:#d95a35; }
+@media (max-width:1180px) {
+  .coding-page.intervista-app .editor-pane { border-top:1px solid var(--coding-line); border-left:0; padding:22px 0 0; }
+}
+@media (max-width:720px) {
+  .coding-page.intervista-app .problem-pane,
+  .coding-page.intervista-app .editor-pane { padding-right:0; padding-left:0; }
+}

@@ -25,20 +25,22 @@ from services.coding.evaluator import (
     public_question,
     score_tests,
     select_question_ids,
+    PUBLIC_TEST_CASES,
+    TOTAL_TEST_CASES,
 )
 from services.coding.execution_service import (
     CodingExecutionConfigurationError,
     CodingExecutionError,
     coding_execution_service,
 )
+from services.coding.harnesses import build_execution_source, has_entrypoint
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parents[2]
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 MAX_SOURCE_BYTES = 32 * 1024
 MAX_INPUT_BYTES = 16 * 1024
-MAX_EXECUTIONS_PER_QUESTION = 3
-MAX_EXECUTIONS_PER_ATTEMPT = 6
+MAX_SUBMISSIONS_PER_QUESTION = 2
 CODING_LOCKS: dict[int, asyncio.Lock] = {}
 
 
@@ -47,15 +49,17 @@ def _question_response(question: dict[str, Any], row: CodingQuestionResult) -> d
         "question": public_question(question),
         "question_order": row.question_order,
         "execution_count": row.execution_count,
-        "execution_limit": MAX_EXECUTIONS_PER_QUESTION,
+        "submission_count": row.submission_count,
+        "submission_limit": MAX_SUBMISSIONS_PER_QUESTION,
     }
-    if row.source_code is not None:
+    if row.source_code is not None and not has_entrypoint(row.language or "cpp", row.source_code):
         response["saved_source_code"] = row.source_code
         response["language"] = row.language or "cpp"
     if isinstance(row.test_results, list):
         response["saved_results"] = [
             {key: value for key, value in result.items() if key != "retryable"}
             for result in row.test_results
+            if result.get("test_number", 0) <= PUBLIC_TEST_CASES
         ]
     return response
 
@@ -72,9 +76,25 @@ def _current_question(db: Session, attempt: CodingAttempt) -> CodingQuestionResu
     )
 
 
+def _discard_legacy_full_program(row: CodingQuestionResult) -> bool:
+    """Clear old full-program source/results from rounds created before function mode."""
+    if row.source_code is None or not has_entrypoint(row.language or "cpp", row.source_code):
+        return False
+    row.source_code = None
+    row.source_hash = None
+    row.counted_source_hash = None
+    row.submission_count = 0
+    row.test_results = None
+    return True
+
+
 def _question_results(row: CodingQuestionResult) -> list[dict[str, Any]]:
     results = row.test_results
-    if not isinstance(results, list) or len(results) != 3:
+    # Completed reports created under the former ten-test configuration remain
+    # readable with their original saved totals and public-result visibility.
+    if isinstance(results, list) and row.submitted_at is not None and len(results) > TOTAL_TEST_CASES:
+        return results
+    if not isinstance(results, list) or len(results) != TOTAL_TEST_CASES:
         return [
             {
                 "test_number": number,
@@ -86,7 +106,7 @@ def _question_results(row: CodingQuestionResult) -> list[dict[str, Any]]:
                 "memory": None,
                 "retryable": False,
             }
-            for number in range(1, 4)
+            for number in range(1, TOTAL_TEST_CASES + 1)
         ]
     return results
 
@@ -98,12 +118,16 @@ def _attempt_progress(db: Session, attempt: CodingAttempt) -> dict[str, Any]:
     question = find_question(row.question_id)
     if question is None:
         raise HTTPException(status_code=503, detail="The assigned coding question is unavailable.")
+    if _discard_legacy_full_program(row):
+        db.add(row)
+        db.commit()
     return {
         "attempt_id": attempt.id,
         "status": attempt.status,
         "is_complete": False,
         "attempt_execution_count": attempt.execution_count,
-        "attempt_execution_limit": MAX_EXECUTIONS_PER_ATTEMPT,
+        "submission_count": row.submission_count,
+        "submission_limit": MAX_SUBMISSIONS_PER_QUESTION,
         **_question_response(question, row),
     }
 
@@ -124,6 +148,7 @@ def _result_payload(db: Session, attempt: CodingAttempt) -> dict[str, Any]:
             "question_order": row.question_order,
             "question_id": row.question_id,
             "title": question["title"],
+            "question": question["description"],
             "difficulty": question["difficulty"],
             "topic": question["topic"],
             "language": row.language,
@@ -135,10 +160,13 @@ def _result_payload(db: Session, attempt: CodingAttempt) -> dict[str, Any]:
             "tests": [
                 {key: value for key, value in result.items() if key != "retryable"}
                 for result in _question_results(row)
+                if result.get("test_number", 0) <= PUBLIC_TEST_CASES
             ],
-            "reference_solution": question[
-                "reference_solution_cpp" if row.language == "cpp" else "reference_solution_python"
-            ],
+            # Keep the existing report key for API compatibility, but ensure it
+            # contains the candidate's final submitted code, never the canonical
+            # answer stored in the private question bank.
+            "reference_solution": row.source_code or "",
+            "submitted_solution": row.source_code or "",
         })
     return {
         "attempt_id": attempt.id,
@@ -184,14 +212,13 @@ def _reserve_execution(
     source_code: str,
     language: str,
 ) -> None:
-    """Atomically charge one provider execution against both server-side budgets."""
+    """Record one provider request; this counter does not consume candidate submissions."""
     attempt_count = (
         db.query(CodingAttempt)
         .filter(
             CodingAttempt.id == attempt_id,
             CodingAttempt.user_id == user_id,
             CodingAttempt.status == "in_progress",
-            CodingAttempt.execution_count < MAX_EXECUTIONS_PER_ATTEMPT,
         )
         .update({CodingAttempt.execution_count: CodingAttempt.execution_count + 1}, synchronize_session=False)
     )
@@ -201,7 +228,6 @@ def _reserve_execution(
             CodingQuestionResult.id == question_row_id,
             CodingQuestionResult.coding_attempt_id == attempt_id,
             CodingQuestionResult.submitted_at.is_(None),
-            CodingQuestionResult.execution_count < MAX_EXECUTIONS_PER_QUESTION,
             or_(CodingQuestionResult.source_hash.is_(None), CodingQuestionResult.source_hash == source_hash),
         )
         .update({
@@ -242,59 +268,63 @@ async def _run_or_submit(
         question = find_question(row.question_id)
         if not question:
             raise HTTPException(status_code=503, detail="The assigned coding question is unavailable.")
+        if _discard_legacy_full_program(row):
+            db.add(row)
+            db.commit()
+        try:
+            execution_source = build_execution_source(question, language, source_code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if any(len(case["input"].encode("utf-8")) > MAX_INPUT_BYTES for case in question["test_cases"]):
             raise HTTPException(status_code=503, detail="The coding question contains an oversized test case.")
 
         source_hash = hashlib.sha256(f"{language}\0{source_code}".encode("utf-8")).hexdigest()
         if row.source_hash and row.source_hash != source_hash:
-            if row.execution_count >= MAX_EXECUTIONS_PER_QUESTION or attempt.execution_count >= MAX_EXECUTIONS_PER_ATTEMPT:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Execution limit reached. No additional execution was started; restore the code from the latest Run to submit its results.",
-                )
-            raise HTTPException(
-                status_code=409,
-                detail="This question has already used executions with different code. Restore the code from its latest Run before submitting.",
-            )
+            if any(result.get("retryable") or result.get("status") == "Not Run" for result in _question_results(row)):
+                raise HTTPException(status_code=409, detail="Retry the same code until the execution service completes all tests.")
+            if row.submission_count >= MAX_SUBMISSIONS_PER_QUESTION:
+                raise HTTPException(status_code=429, detail="This question has used both submissions.")
+            row.test_results = None
+            row.source_hash = source_hash
+            row.source_code = source_code
+            row.language = language
+            db.add(row)
+            db.commit()
+        elif not row.source_hash:
+            row.source_hash = source_hash
+            row.source_code = source_code
+            row.language = language
+            db.add(row)
+            db.commit()
 
         results = _question_results(row)
         completed_cached = all(not result.get("retryable") and result.get("status") != "Not Run" for result in results)
         if not completed_cached:
-            # Resolve configuration and language before charging an execution.
             try:
                 coding_execution_service.validate_language(language)
-            except CodingExecutionConfigurationError as exc:
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
-            except CodingExecutionError as exc:
+            except (CodingExecutionConfigurationError, CodingExecutionError) as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
 
             for index, case in enumerate(question["test_cases"]):
                 current = results[index]
                 if not current.get("retryable") and current.get("status") != "Not Run":
                     continue
-                if row.execution_count >= MAX_EXECUTIONS_PER_QUESTION or attempt.execution_count >= MAX_EXECUTIONS_PER_ATTEMPT:
-                    break
                 _reserve_execution(db, attempt.id, row.id, user.id, source_hash, source_code, language)
                 db.refresh(attempt)
                 db.refresh(row)
                 try:
-                    execution = await coding_execution_service.execute(source_code, language, case["input"])
+                    execution = await coding_execution_service.execute(execution_source, language, case["input"])
                     results[index] = evaluate_execution(index + 1, execution, case["expected_output"])
                 except CodingExecutionError as exc:
-                    logger.warning(
-                        "Coding provider execution failed: attempt_id=%s question_id=%s test=%s error=%s",
-                        attempt.id, question_id, index + 1, str(exc),
-                    )
+                    logger.warning("Coding provider execution failed: attempt_id=%s question_id=%s test=%s error=%s", attempt.id, question_id, index + 1, str(exc))
                     results[index] = evaluate_service_error(index + 1, str(exc))
-                    if not exc.retryable:
-                        results[index]["retryable"] = False
-                    # Do not spend the remaining budget when the provider is unavailable.
+                    row.test_results = list(results)
+                    db.add(row)
+                    db.commit()
                     break
                 row.test_results = list(results)
                 db.add(row)
                 db.commit()
-
-            # Save service errors/pending statuses even when a call failed before a result.
             row.test_results = list(results)
             row.language = language
             db.add(row)
@@ -304,45 +334,28 @@ async def _run_or_submit(
             results = _question_results(row)
 
         has_retryable = any(result.get("retryable") or result.get("status") == "Not Run" for result in results)
-        limit_reached = (
-            row.execution_count >= MAX_EXECUTIONS_PER_QUESTION
-            or attempt.execution_count >= MAX_EXECUTIONS_PER_ATTEMPT
-        )
-        if not finalize and completed_cached and limit_reached:
-            return JSONResponse(content={
-                "attempt_id": attempt.id,
-                "question_id": row.question_id,
-                "question_order": row.question_order,
-                "language": language,
+        public_results = [
+            {key: value for key, value in result.items() if key != "retryable"}
+            for result in results if result.get("test_number", 0) <= PUBLIC_TEST_CASES
+        ]
+        if has_retryable:
+            return JSONResponse(status_code=503, content={
+                "detail": "The execution service did not complete all tests. Retry the same code; this does not use a submission.",
+                "incomplete": True,
+                "results": public_results,
                 "execution_count": row.execution_count,
-                "attempt_execution_count": attempt.execution_count,
-                "execution_limit": MAX_EXECUTIONS_PER_QUESTION,
-                "results": [{key: value for key, value in result.items() if key != "retryable"} for result in results],
-                "passed_test_cases": sum(1 for result in results if result.get("passed")),
-                "total_test_cases": 3,
-                "score": score_tests(results)[1],
-                "message": "Execution limit reached. Showing the latest results without another provider call.",
+                "submission_count": row.submission_count,
+                "submission_limit": MAX_SUBMISSIONS_PER_QUESTION,
             })
-        if has_retryable and limit_reached:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "detail": "Execution limit reached. No additional execution was started.",
-                    "results": [{key: value for key, value in result.items() if key != "retryable"} for result in results],
-                    "execution_count": row.execution_count,
-                    "attempt_execution_count": attempt.execution_count,
-                },
-            )
-        if finalize and has_retryable:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "detail": "The code provider did not complete every test. Retry while execution budget remains.",
-                    "results": [{key: value for key, value in result.items() if key != "retryable"} for result in results],
-                    "execution_count": row.execution_count,
-                    "attempt_execution_count": attempt.execution_count,
-                },
-            )
+
+        if row.counted_source_hash != source_hash:
+            if row.submission_count >= MAX_SUBMISSIONS_PER_QUESTION:
+                raise HTTPException(status_code=429, detail="This question has used both submissions.")
+            row.submission_count += 1
+            row.counted_source_hash = source_hash
+            db.add(row)
+            db.commit()
+            db.refresh(row)
 
         passed, score = score_tests(results)
         response: dict[str, Any] = {
@@ -352,25 +365,31 @@ async def _run_or_submit(
             "language": language,
             "execution_count": row.execution_count,
             "attempt_execution_count": attempt.execution_count,
-            "execution_limit": MAX_EXECUTIONS_PER_QUESTION,
-            "results": [{key: value for key, value in result.items() if key != "retryable"} for result in results],
+            "submission_count": row.submission_count,
+            "submission_limit": MAX_SUBMISSIONS_PER_QUESTION,
+            "results": public_results,
             "passed_test_cases": passed,
-            "total_test_cases": 3,
+            "total_test_cases": TOTAL_TEST_CASES,
             "score": score,
         }
         if not finalize:
             return JSONResponse(content=response)
 
+        if passed < TOTAL_TEST_CASES and row.submission_count < MAX_SUBMISSIONS_PER_QUESTION:
+            response["can_retry"] = True
+            response["message"] = "Some tests failed. Revise your code and use your second submission."
+            return JSONResponse(content=response)
+
         row.language = language
         row.passed_test_cases = passed
+        row.total_test_cases = TOTAL_TEST_CASES
         row.score = score
-        row.execution_status = "Accepted" if passed == 3 else "Partial" if passed else "Not Solved"
+        row.execution_status = "Accepted" if passed == TOTAL_TEST_CASES else "Partial" if passed else "Not Solved"
         row.submitted_at = datetime.utcnow()
-        row.source_code = None
         row.test_results = list(results)
         attempt.attempted_questions += 1
         attempt.passed_test_cases += passed
-        if passed == 3:
+        if passed == TOTAL_TEST_CASES:
             attempt.solved_questions += 1
         next_row = (
             db.query(CodingQuestionResult)
@@ -384,7 +403,7 @@ async def _run_or_submit(
         if next_row is None:
             attempt.status = "completed"
             attempt.completed_at = datetime.utcnow()
-            attempt.overall_score = round(attempt.passed_test_cases * 100.0 / 6, 2)
+            attempt.overall_score = round(attempt.passed_test_cases * 100.0 / (2 * TOTAL_TEST_CASES), 2)
             db.add(row)
             db.add(attempt)
             db.commit()
@@ -398,11 +417,13 @@ async def _run_or_submit(
         next_question = find_question(next_row.question_id)
         if next_question is None:
             raise HTTPException(status_code=503, detail="The next coding question is unavailable.")
+        if _discard_legacy_full_program(next_row):
+            db.add(next_row)
+            db.commit()
         response["completed"] = False
         response["next"] = {
             **_question_response(next_question, next_row),
             "attempt_execution_count": attempt.execution_count,
-            "attempt_execution_limit": MAX_EXECUTIONS_PER_ATTEMPT,
         }
         return JSONResponse(content=response)
 
@@ -475,7 +496,7 @@ def create_coding_router(
         except CodingDatasetError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-        attempt = CodingAttempt(user_id=user.id, total_questions=2, total_test_cases=6, status="in_progress")
+        attempt = CodingAttempt(user_id=user.id, total_questions=2, total_test_cases=2 * TOTAL_TEST_CASES, status="in_progress")
         db.add(attempt)
         db.flush()
         for order, question_id in enumerate(question_ids, start=1):
@@ -483,7 +504,7 @@ def create_coding_router(
                 coding_attempt_id=attempt.id,
                 question_id=question_id,
                 question_order=order,
-                total_test_cases=3,
+                total_test_cases=TOTAL_TEST_CASES,
                 execution_status="pending",
                 test_results=None,
             ))
