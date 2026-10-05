@@ -2,8 +2,8 @@
 # GeeksforGeeks resource fetcher — real scraping only, no mock data
 
 import asyncio
-import random
 import re
+from urllib.parse import parse_qs, quote_plus, urlparse
 from typing import List, Dict, Any, Optional, Tuple
 from .base_fetcher import BaseFetcher
 from utils.logger import Logger
@@ -15,8 +15,8 @@ class GeeksForGeeksFetcher(BaseFetcher):
     """
     Fetch real learning resources from GeeksforGeeks.
 
-    Uses GFG search scraping first. Slug-based fallback only returns URLs
-    verified via HTTP HEAD (or Range GET). Never returns unverified guessed URLs.
+    Uses GFG search scraping first, then Google site search to resolve a direct
+    GeeksforGeeks article URL. It never returns a generic search page.
     """
 
     GFG_SEARCH_URL = "https://www.geeksforgeeks.org/search/"
@@ -93,13 +93,16 @@ class GeeksForGeeksFetcher(BaseFetcher):
                 logger.info(f"GFG scrape: {len(results)} results for '{query}'")
                 return results
 
-            results = await self._slug_fallback(query, limit)
-            logger.info(f"GFG slug fallback: {len(results)} verified results for '{query}'")
+            results = await self._google_article_search(query, limit)
+            if not results:
+                results = await self._slug_fallback(query, limit)
+            logger.info(f"GFG direct-article fallback: {len(results)} results for '{query}'")
             return results
 
         except Exception as e:
             logger.error(f"GFG search failed for '{query}': {e}")
-            return await self._slug_fallback(query, limit)
+            results = await self._google_article_search(query, limit)
+            return results or await self._slug_fallback(query, limit)
 
     async def _scrape_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         try:
@@ -109,36 +112,28 @@ class GeeksForGeeksFetcher(BaseFetcher):
             return []
 
         try:
-            encoded_query = query.replace(" ", "+")
+            encoded_query = quote_plus(query)
             url = f"{self.GFG_SEARCH_URL}?q={encoded_query}"
             headers = self._build_headers()
 
-            await asyncio.sleep(random.uniform(0.1, 0.3))
             async with httpx.AsyncClient(verify=False, timeout=15, follow_redirects=True) as client:
                 resp = await client.get(url, headers=headers)
 
             if resp.status_code != 200:
-                logger.warning(
-                    "GFG scrape for '%s' returned HTTP %s from %s",
-                    query,
-                    resp.status_code,
-                    url,
-                )
+                logger.warning(f"GFG scrape for '{query}' returned HTTP {resp.status_code} from {url}")
                 return []
 
             body_text = getattr(resp, "text", "") or ""
             if self._looks_like_bot_check(body_text, resp.status_code):
                 logger.warning(
-                    "GFG scrape for '%s' looks bot-protected (HTTP %s): %s",
-                    query,
-                    resp.status_code,
-                    self._body_preview(body_text),
+                    f"GFG scrape for '{query}' looks bot-protected (HTTP {resp.status_code}): "
+                    f"{self._body_preview(body_text)}"
                 )
                 return []
 
             parsed = self._parse_search_html(body_text, limit, query)
             if not parsed:
-                logger.info("GFG scrape for '%s' returned no parseable results; falling back to overrides", query)
+                logger.info(f"GFG scrape for '{query}' returned no parseable article results")
             return parsed
 
         except Exception as e:
@@ -294,19 +289,77 @@ class GeeksForGeeksFetcher(BaseFetcher):
                 deduped.append((url, trusted_override))
         return deduped
 
+    async def _google_article_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        """Use Google site search and return its top direct GFG article results."""
+        try:
+            import httpx
+            from bs4 import BeautifulSoup
+        except ImportError:
+            logger.warning("httpx/BeautifulSoup unavailable; cannot resolve direct GFG search results")
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                response = await client.get(
+                    "https://www.google.com/search",
+                    params={"q": f"site:geeksforgeeks.org {query}", "num": min(limit, 10)},
+                    headers={"User-Agent": self._build_headers()["User-Agent"]},
+                )
+            if response.status_code != 200:
+                logger.warning("Google GFG search for '%s' returned HTTP %s", query, response.status_code)
+                return []
+
+            soup = BeautifulSoup(response.text or "", "html.parser")
+            results = []
+            seen = set()
+            for link in soup.select("a[href]"):
+                href = link.get("href", "")
+                parsed = urlparse(href)
+                if parsed.path == "/url" and (not parsed.netloc or parsed.netloc.casefold().endswith("google.com")):
+                    params = parse_qs(parsed.query)
+                    href = (params.get("q") or params.get("url") or [""])[0]
+                if not href.startswith("https://"):
+                    continue
+                article = urlparse(href)
+                article_host = article.netloc.casefold().split(":", 1)[0]
+                if (
+                    not (article_host == "geeksforgeeks.org" or article_host.endswith(".geeksforgeeks.org"))
+                    or article.path in {"/", "/search", "/search/"}
+                    or article.path.startswith("/search/")
+                    or any(part in article.path for part in ("/tag/", "/category/", "/courses/", "/jobs/", "/videos/"))
+                    or not re.match(r"^/[a-z0-9][a-z0-9\-/]+/?$", article.path, re.IGNORECASE)
+                ):
+                    continue
+                direct_url = f"https://www.geeksforgeeks.org{article.path.rstrip('/')}/"
+                key = direct_url.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                title = link.get_text(" ", strip=True)
+                if not title:
+                    heading = link.find(["h2", "h3"])
+                    title = heading.get_text(" ", strip=True) if heading else article.path.strip("/").split("/")[-1].replace("-", " ").title()
+                results.append(self._make_result(
+                    title, direct_url,
+                    f"GeeksforGeeks article selected from Google results for {query}.", query,
+                ))
+                if len(results) >= limit:
+                    break
+            return results
+        except Exception as exc:
+            logger.warning("Google GFG article search failed for '%s': %s", query, exc)
+            return []
+
     async def _slug_fallback(self, query: str, limit: int) -> List[Dict[str, Any]]:
-        """Return trusted override URLs immediately, otherwise verify generated candidates."""
+        """Use only a verified known article when Google search is unavailable."""
+        normalized_query = " ".join(query.casefold().split())
+        if normalized_query not in self.SLUG_OVERRIDES:
+            return []
         candidates = self._candidate_urls(query, limit)
         if not candidates:
             return []
 
-        trusted_urls = [url for url, trusted_override in candidates if trusted_override]
-        unverified_candidates = [(url, False) for url, trusted_override in candidates if not trusted_override]
-
-        result_urls = list(trusted_urls)
-        if unverified_candidates:
-            verified_urls = await self._verify_urls_batch(unverified_candidates)
-            result_urls.extend(verified_urls)
+        result_urls = await self._verify_urls_batch([(url, False) for url, _ in candidates])
 
         if not result_urls:
             logger.warning(
@@ -359,7 +412,7 @@ class GeeksForGeeksFetcher(BaseFetcher):
         trust_override: bool = False,
     ) -> Optional[str]:
         if trust_override:
-            logger.info("Skipping HTTP verification for trusted GFG override URL %s", url)
+            logger.info(f"Skipping HTTP verification for trusted GFG override URL {url}")
             return url
 
         async with self._verify_semaphore:
@@ -378,17 +431,13 @@ class GeeksForGeeksFetcher(BaseFetcher):
                         return url
                 if self._looks_like_bot_check(body_preview, resp.status_code):
                     logger.warning(
-                        "GFG verification hit a challenge page for %s (HTTP %s): %s",
-                        url,
-                        resp.status_code,
-                        body_preview,
+                        f"GFG verification hit a challenge page for {url} "
+                        f"(HTTP {resp.status_code}): {body_preview}"
                     )
                 else:
                     logger.warning(
-                        "GFG slug verification failed for %s (HTTP %s): %s",
-                        url,
-                        resp.status_code,
-                        body_preview,
+                        f"GFG slug verification failed for {url} "
+                        f"(HTTP {resp.status_code}): {body_preview}"
                     )
             except Exception as e:
                 logger.warning(f"GFG slug verification failed for {url}: {e}")

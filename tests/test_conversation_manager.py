@@ -27,6 +27,23 @@ class ConversationDecisionTests(unittest.TestCase):
         _, action = self.decide("I do not know")
         self.assertEqual(action, "CLARIFICATION")
 
+    def test_explicit_skill_gap_moves_to_another_topic(self):
+        analysis = analyze_answer(
+            "How have you used Java?", "I don't know Java, but I use Python for projects.", "technical"
+        )
+        action = select_action(analysis, 0, 2, 2, 12, 2, 5, "technical")
+        self.assertTrue(analysis["explicit_knowledge_gap"])
+        self.assertIn("Java", analysis["knowledge_gap_topics"])
+        self.assertNotIn("Python", analysis["knowledge_gap_topics"])
+        self.assertEqual(action, "CHANGE_TOPIC")
+
+    def test_generated_question_cannot_return_to_declared_gap(self):
+        with self.assertRaisesRegex(ValueError, "knowledge gap"):
+            validate_generated_question(
+                "How would you use Java for this service?", "skill-based", [],
+                "CHANGE_TOPIC", current_category="technical", excluded_topics=["Java"],
+            )
+
     def test_unanswered_skip_moves_on(self):
         _, action = self.decide("(skipped)")
         self.assertEqual(action, "MOVE_ON")

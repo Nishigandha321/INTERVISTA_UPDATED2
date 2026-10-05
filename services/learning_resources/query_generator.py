@@ -52,36 +52,19 @@ class SearchQueryGenerator:
             logger.warning("Empty concept provided to query generator")
             return []
 
-        concept = concept.strip()
+        concept = " ".join(concept.split())
         count = max(1, min(count, 10))
-
-        try:
-            prompt = self._build_prompt(concept, role, count, level, company, difficulty)
-
-            response = await self.llm_service.invoke(
-                prompt,
-                use_cache=True,
-                json_mode=True,
-                temperature=0.6,
-                max_tokens=500,
-            )
-
-            queries = self._parse_response(response)
-
-            if queries:
-                logger.info(
-                    f"Generated {len(queries)} queries for '{concept}' "
-                    f"(role={role}, level={level or 'n/a'}, "
-                    f"company={company or 'n/a'}, difficulty={difficulty or 'n/a'})"
-                )
-                return queries[:count]
-
-            logger.warning(f"Failed to parse LLM response for concept: {concept}")
-            return self._get_fallback_queries(concept, role, count, level, difficulty)
-
-        except Exception as e:
-            logger.error(f"Query generation failed: {e}")
-            return self._get_fallback_queries(concept, role, count, level, difficulty)
+        # These are search terms, not interview content. Keep them deterministic:
+        # this avoids up to one extra LLM call per weakness and prevents unrelated
+        # company/role names from diluting a candidate-specific skill gap.
+        queries = [
+            f"{concept} fundamentals",
+            f"{concept} concepts and examples",
+            f"{concept} beginner tutorial",
+            f"{concept} common mistakes",
+        ]
+        logger.info(f"Built {min(count, len(queries))} focused resource queries for '{concept}'")
+        return queries[:count]
 
     async def generate_queries_batch(
         self,

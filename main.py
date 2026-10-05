@@ -9,7 +9,6 @@ import os
 import re
 import time
 import random
-import tempfile
 from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -68,7 +67,6 @@ from services.rag.retriever import get_retriever
 from services.rag.rag_pipeline import get_or_create_rag_pipeline, initialize_rag
 from core.chains.base_chain import InterviewQuestionChain, EvaluationChain, SummaryChain
 from speech.transcription import (
-    transcribe_audio,
     normalize_candidate_transcript,
     analyze_speech_delivery,
     compute_confidence_score,
@@ -230,9 +228,70 @@ def categorize_weak_topics(weak_topics: list[str]) -> dict[str, list[str]]:
             technical.append(topic)
 
     return {
-        "Technical Skills": list(set(technical)),
-        "Communication & Answer Quality": list(set(communication))
+        "Technical Skills": list(dict.fromkeys(technical)),
+        "Communication & Answer Quality": list(dict.fromkeys(communication)),
     }
+
+
+def _evidence_supported_weak_topics(detailed_answers: list[dict], limit: int = 4) -> dict[str, list[str]]:
+    """Build a short report-only weakness list from evaluated answer evidence."""
+    topics: list[str] = []
+    generic = {"technical", "hr", "behavioral", "general", "interview", "main", "follow-up"}
+    explicit_gap = re.compile(
+        r"\b(?:i\s+(?:do not|don't|dont|cannot|can't)\s+know|"
+        r"i\s+(?:have|got)\s+no\s+experience\s+with|i(?:'m| am)\s+not\s+familiar\s+with)\b",
+        re.IGNORECASE,
+    )
+    for answer in detailed_answers:
+        if not isinstance(answer, dict) or not answer.get("evaluation_available", False):
+            continue
+        try:
+            low_score = float(answer.get("score")) < 65
+        except (TypeError, ValueError):
+            low_score = False
+        response = str(answer.get("transcript") or "").casefold()
+        question_text = str(answer.get("question") or "").casefold()
+        has_explicit_gap = bool(explicit_gap.search(response))
+        if not low_score and not has_explicit_gap:
+            continue
+        raw_topics = answer.get("weak_topics") or []
+        if isinstance(raw_topics, str):
+            raw_topics = [raw_topics]
+        answer_topic_start = len(topics)
+        used_question_gap_topic = False
+        for raw_topic in raw_topics:
+            topic = str(raw_topic).strip()
+            if not topic or topic.casefold() in generic:
+                continue
+            terms = [term for term in re.findall(r"[a-z0-9+#.]+", topic.casefold()) if len(term) > 2]
+            answer_supported = any(
+                re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", response)
+                for term in terms
+            )
+            question_supported = any(
+                re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", question_text)
+                for term in terms
+            )
+            # Prefer answer evidence. A bare "I don't know" can inherit only
+            # one matching skill from the question, never all of its concepts.
+            if answer_supported or (
+                has_explicit_gap
+                and question_supported
+                and len(topics) == answer_topic_start
+                and not used_question_gap_topic
+            ):
+                topics.append(topic)
+                if not answer_supported:
+                    used_question_gap_topic = True
+        # If evaluation found a clearly poor answer but emitted no taxonomy, use
+        # its single canonical question topic rather than listing question terms.
+        canonical_topic = str(answer.get("topic") or "").strip()
+        if low_score and len(topics) == answer_topic_start and canonical_topic.casefold() not in generic:
+            topics.append(canonical_topic)
+
+    unique_topics = list(dict.fromkeys(topic for topic in topics if topic))
+    concise = sorted(unique_topics, key=lambda topic: (-topics.count(topic), unique_topics.index(topic)))[:limit]
+    return categorize_weak_topics(concise)
 
 
 def _save_interview_profile_fields(
@@ -1025,13 +1084,12 @@ async def evaluate_content(
     job_description: str = "",
     interview_type: str = "technical",
 ) -> dict:
-    quota_exhausted = False
 
     async def evaluate_one(qa: dict) -> tuple[dict, dict | None, list[str]]:
-        nonlocal quota_exhausted
         question = qa.get("question", "")
         answer = normalize_transcript(qa.get("answer", ""))
         heuristics = score_answer_structure(answer, question)
+        answer_signals = analyze_answer(question, answer, qa.get("topic", ""))
         eval_payload = {
             "role": role,
             "level": level,
@@ -1048,23 +1106,31 @@ async def evaluate_content(
             )
 
         def unavailable() -> tuple[dict, None, list[str]]:
+            evidence_topics = (
+                answer_signals.get("knowledge_gap_topics", [])
+                or (answer_signals.get("question_concepts", []) if (
+                    answer_signals.get("low_confidence")
+                    or answer_signals.get("technically_questionable")
+                ) else [])
+            )
             return {
                 "score": None,
                 "evaluation_available": False,
+                "feedback": "Evaluation could not be generated by the evaluation service.",
                 "strengths": [],
                 "weaknesses": [],
                 "ideal_answer": "",
-                "weak_topics": [],
+                "weak_topics": evidence_topics,
                 "dimension_scores": {},
                 "_rl_metrics": {},
-            }, None, []
+            }, None, evidence_topics
 
         parsed = None
         score = None
         last_error = None
-        # Retry one malformed/incomplete response. A provider rate limit is
-        # handled as a quota failure and must not trigger another request.
-        for attempt in range(2):
+        # Keep report evaluation independent per answer. A rate limit for one
+        # answer must not silently suppress all later answers in the report.
+        for attempt in range(3):
             try:
                 result = await asyncio.wait_for(
                     evaluation_chain.invoke(eval_payload, use_rag=False),
@@ -1090,13 +1156,10 @@ async def evaluate_content(
                 break
             except Exception as exc:
                 last_error = exc
-                if _is_provider_rate_limit(exc):
-                    quota_exhausted = True
-                    logger.warning(
-                        "Evaluation quota/rate limit reached; preserving transcripts and skipping remaining LLM evaluations."
-                    )
-                    break
-                if attempt == 0:
+                if _is_provider_rate_limit(exc) and attempt < 2:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                if attempt < 2:
                     logger.warning("Retrying incomplete interview evaluation response: %s", exc)
 
         if parsed is None:
@@ -1119,7 +1182,37 @@ async def evaluate_content(
             weak_topics_raw = [weak_topics_raw]
         if not isinstance(weak_topics_raw, list):
             weak_topics_raw = []
-        weak_topics = list({str(t).strip().lower() for t in weak_topics_raw if t})[:5]
+        llm_topics = list(dict.fromkeys(
+            str(t).strip().lower() for t in weak_topics_raw if str(t).strip()
+        ))[:5]
+        answer_text = str(answer or "").casefold()
+        generic_weaknesses = {
+            "technical depth", "communication", "clarity", "confidence", "problem solving",
+            "problem-solving", "answer quality", "technical knowledge", "general knowledge",
+        }
+        supported_llm_topics = [
+            topic for topic in llm_topics
+            if topic not in generic_weaknesses
+            and any(
+                re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", answer_text)
+                for token in re.findall(r"[a-z0-9+#]+", topic) if len(token) > 2
+            )
+        ]
+        if answer_signals.get("explicit_knowledge_gap"):
+            weak_topics = answer_signals.get("knowledge_gap_topics", [])[:2]
+        elif (
+            answer_signals.get("low_confidence")
+            or answer_signals.get("technically_questionable")
+            or score < 65
+        ):
+            weak_topics = supported_llm_topics[:2]
+            if not weak_topics:
+                canonical_topic = str(qa.get("topic") or "").strip()
+                if canonical_topic.casefold() not in {"", "technical", "hr", "behavioral", "main", "follow-up"}:
+                    weak_topics = [canonical_topic]
+        else:
+            weak_topics = supported_llm_topics[:2]
+        weak_topics = list(dict.fromkeys(str(t).strip().lower() for t in weak_topics if str(t).strip()))[:2]
         dimensions = {
             "relevance": blend_dimension_score(parsed.get("relevance_score"), heuristics["relevance"]),
             "explanation_depth": blend_dimension_score(parsed.get("explanation_depth_score"), heuristics["explanation_depth"]),
@@ -1140,23 +1233,21 @@ async def evaluate_content(
             "evaluation_available": True,
             "strengths": strengths,
             "weaknesses": weaknesses,
+            "feedback": str(
+                parsed.get("feedback") or parsed.get("evaluation")
+                or " ".join(str(item) for item in strengths + weaknesses)
+            ).strip(),
             "ideal_answer": ideal_answer,
             "weak_topics": weak_topics,
             "dimension_scores": dimensions,
             "_rl_metrics": rl_metrics,
         }, dimensions, weak_topics
 
-    # Serialize final evaluations to avoid creating a burst against a shared TPM cap.
+    # Serialize report evaluations to avoid creating a burst against a shared TPM cap.
     evaluation_semaphore = asyncio.Semaphore(1)
 
     async def evaluate_with_limit(qa: dict):
         async with evaluation_semaphore:
-            if quota_exhausted:
-                return ({
-                    "score": None, "evaluation_available": False, "strengths": [],
-                    "weaknesses": [], "ideal_answer": "", "weak_topics": [],
-                    "dimension_scores": {}, "_rl_metrics": {},
-                }, None, [])
             return await evaluate_one(qa)
 
     evaluated = await asyncio.gather(*(evaluate_with_limit(qa) for qa in questions_answers))
@@ -1168,9 +1259,13 @@ async def evaluate_content(
             per_answer_dimensions.append(dimensions)
         weak_topics.extend(topics)
 
-    # Deduplicate and clean weak_topics
-    weak_topics_final = list(set([t.strip().lower() for t in weak_topics if t]))
-    weak_topics_final = [t for t in weak_topics_final if t][:10]
+    # Preserve evidence order and prioritize topics that recur across answers.
+    weak_topic_counts: dict[str, int] = {}
+    for topic in weak_topics:
+        normalized = str(topic).strip().lower()
+        if normalized:
+            weak_topic_counts[normalized] = weak_topic_counts.get(normalized, 0) + 1
+    weak_topics_final = sorted(weak_topic_counts, key=lambda topic: -weak_topic_counts[topic])[:10]
 
     scores = [a["score"] for a in answers if a.get("evaluation_available")]
     avg_score = sum(scores) / len(scores) if scores else None
@@ -1240,19 +1335,40 @@ async def evaluate_answers(role: str, questions_answers: list) -> dict:
 
 
 async def generate_performance_summary(report_data: dict) -> str:
-    result = await summary_chain.invoke(
-        {
-            "role": report_data.get("candidate_profile", {}).get("role", "Candidate"),
-            "score": report_data.get("overall_score", 0),
-            "weak_topics": report_data.get("weak_topics", []),
-            "attempted": len([
-                a for a in report_data.get("detailed_answers", [])
-                if a.get("transcript") not in ["", "(skipped)", "(no response)"]
-            ]),
-        }
-    )
+    answers = report_data.get("detailed_answers", [])
+    attempted = len([
+        a for a in answers
+        if a.get("transcript") not in ["", "(skipped)", "(no response)"]
+    ])
+    try:
+        result = await summary_chain.invoke(
+            {
+                "role": report_data.get("candidate_profile", {}).get("role", "Candidate"),
+                "score": report_data.get("overall_score", 0),
+                "weak_topics": report_data.get("weak_topics", []),
+                "attempted": attempted,
+            }
+        )
+        summary = str(result.output or "").strip()
+        if summary:
+            return summary
+    except Exception:
+        logger.exception("Performance summary generation failed; building a factual report summary.")
 
-    return result.output or "Summary unavailable."
+    # The fallback only restates persisted report facts; it does not invent feedback.
+    score = report_data.get("overall_score")
+    weak_topics = report_data.get("weak_topics") or {}
+    topics = [
+        str(topic)
+        for values in weak_topics.values() if isinstance(values, list)
+        for topic in values if topic
+    ] if isinstance(weak_topics, dict) else [str(topic) for topic in weak_topics if topic]
+    summary = f"You completed {attempted} answer{'s' if attempted != 1 else ''}."
+    if score is not None:
+        summary += f" Your overall interview score was {score}/100."
+    if topics:
+        summary += " The report identified these areas to develop: " + ", ".join(dict.fromkeys(topics[:6])) + "."
+    return summary
 
 
 async def generate_resume_skill_profile(resume_text: str, role: str, level: str) -> dict:
@@ -1732,41 +1848,59 @@ async def upload_resume(
 # ===========================================================================
 # AUDIO TRANSCRIPTION (Whisper)
 # ===========================================================================
+def _groq_transcribe_audio(request_args: dict):
+    """Synchronous Groq SDK call, dispatched by the async endpoint's worker thread."""
+    return llm_service.client.audio.transcriptions.create(**request_args)
+
+
 @app.post("/api/transcribe")
 async def transcribe_endpoint(
     file: UploadFile = File(...),
     context_prompt: str = Form(default=""),
 ):
+    transcription_started = time.perf_counter()
     audio_bytes = await file.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio recording is empty")
+    # Groq's free endpoint currently accepts uploads up to 25 MB.
+    if len(audio_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Recording is too large. Please record a shorter answer.")
+    if not llm_service.settings.groq_api_key:
+        raise HTTPException(status_code=503, detail="Speech recognition is not configured on the server.")
 
-    # Keep the browser recording container so ffmpeg can detect its actual format.
     suffix = os.path.splitext(file.filename or "")[1].lower()
     if suffix not in {".webm", ".ogg", ".wav", ".mp3", ".m4a"}:
         suffix = ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
-        temp_input = temp_file.name
-        temp_file.write(audio_bytes)
-
     try:
-        # transcribe_audio performs the existing format conversion internally.
-        try:
-            text = transcribe_audio(temp_input, context_prompt=context_prompt)
-        except Exception as exc:
-            logger.exception("Audio transcription failed")
-            detail = "Transcription is unavailable right now. Your recording is available to retry."
-            if isinstance(exc, RuntimeError) and str(exc) == "Whisper is not installed":
-                detail = "Speech recognition is not configured on the server. Your recording is available to retry."
-            raise HTTPException(status_code=503, detail=detail) from exc
-
-    finally:
-        # Clean up temp files
-        if os.path.exists(temp_input):
-            os.remove(temp_input)
+        request_args = {
+            "file": (f"recording{suffix}", audio_bytes),
+            "model": "whisper-large-v3-turbo",
+            "language": "en",
+            "response_format": "json",
+            "temperature": 0.0,
+        }
+        if context_prompt:
+            request_args["prompt"] = str(context_prompt)[:700]
+        transcription = await asyncio.to_thread(
+            _groq_transcribe_audio, request_args
+        )
+        text = str(getattr(transcription, "text", "") or "")
+    except Exception as exc:
+        logger.error(
+            "Groq interview transcription failed: status=%s error_type=%s",
+            getattr(exc, "status_code", None), type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription is temporarily unavailable. Please retry or enter your answer by text.",
+        ) from exc
 
     if not text.strip():
         raise HTTPException(status_code=422, detail="No speech could be transcribed from this recording")
+    logger.info(
+        "Interview transcription complete: audio_bytes=%s latency_ms=%s",
+        len(audio_bytes), round((time.perf_counter() - transcription_started) * 1000),
+    )
     return {"transcript": text}
 # ===========================================================================
 # INTERVIEW — START (returns page for voice interview)
@@ -2185,38 +2319,16 @@ def _conversation_difficulty(level: str, action: str = "", previous: str = "") -
 
 def _conversation_context(session: dict, answer: str = "", analysis: dict | None = None,
                           action: str = "START", corrective_note: str = "") -> str:
-    compact_history = [
-        {
-            "question": str(turn.get("question", ""))[:500],
-            "answer": str(turn.get("normalized_transcript", turn.get("answer", "")))[:800],
-            "topic": str(turn.get("topic", ""))[:100],
-            "question_type": str(turn.get("question_type", ""))[:40],
-        }
-        for turn in session.get("qa_history", [])[-5:]
-    ]
-    answer_analysis = analysis or {}
-    concepts = answer_analysis.get("concepts_mentioned") or []
-    detected_strengths = []
-    if concepts:
-        detected_strengths.append("Named specific concepts: " + ", ".join(map(str, concepts[:5])))
-    if answer_analysis.get("evidence_provided"):
-        detected_strengths.append("Included a rationale, example, or outcome")
+    # The question template already carries the latest answer, its analysis,
+    # recent Q&A, candidate state, role, resume, and JD. Keep only the adaptive
+    # decision fields here so these large values are not serialized twice.
     payload = {
         "interviewer_action": action,
-        "current_question": session.get("current_question", ""),
-        "candidate_latest_answer": str(answer or "")[:4000],
-        "answer_analysis": answer_analysis,
-        "detected_strengths": detected_strengths,
-        "detected_weaknesses": answer_analysis.get("weaknesses", []) + answer_analysis.get("missing_points", []),
-        "recent_conversation": compact_history,
         "current_topic": session.get("current_topic", ""),
         "current_skill": session.get("current_skill", ""),
-        "interview_type": session.get("interview_type", "technical"),
         "current_difficulty": session.get("current_difficulty", "Medium"),
-        "role": session.get("role", "Software Engineer"),
-        "company_name": session.get("company_name", ""),
-        "candidate_state": session.get("candidate_state", {}),
-        "covered_topics": session.get("covered_topics", []),
+        "covered_topics": session.get("covered_topics", [])[-10:],
+        "knowledge_boundaries": session.get("knowledge_boundaries", [])[-8:],
         "probe_count": session.get("probe_count", 0),
         "main_question_count": session.get("main_question_count", 0),
         "corrective_validation_note": corrective_note,
@@ -2231,7 +2343,8 @@ def _conversation_context(session: dict, answer: str = "", analysis: dict | None
         "technologies or invent drawbacks. Do not repeat prior "
         "questions. Resume and JD are supplied once in the structured prompt; use them with role, "
         "skills, difficulty, and interview type. For CHANGE_TOPIC/MOVE_ON, choose an uncovered "
-        "topic appropriate to this interview type. Return the required JSON question and category only."
+        "topic appropriate to this interview type. Never ask about a topic in knowledge_boundaries; "
+        "choose another relevant skill from the resume, JD, or prior interview context. Return the required JSON question and category only."
     )
 
 
@@ -2322,7 +2435,12 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
             session["candidate_state"] = {}
 
     generation_attempts = 0
+    generation_timeout = _config_int("INTERVIEW_QUESTION_TOTAL_TIMEOUT_SECONDS", 5)
+    generation_deadline = time.monotonic() + generation_timeout
     for attempt in range(2):
+        remaining_timeout = generation_deadline - time.monotonic()
+        if remaining_timeout <= 0:
+            break
         generation_attempts += 1
         corrective = "Return one concise, single-sentence question in the requested JSON schema."
         if attempt:
@@ -2367,13 +2485,18 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
             "recent_conversation": recent_history,
             "job_description": str(session.get("job_description", ""))[:3000],
             "candidate_state": session.get("candidate_state", {}),
+            "knowledge_boundaries": session.get("knowledge_boundaries", [])[-8:],
             **jd_fields,
             "instruction_override": prompt_context,
         }
+        attempt_started = time.perf_counter()
         try:
             result = await asyncio.wait_for(
                 question_chain.invoke(llm_payload, use_rag=False, max_tokens=512),
-                timeout=_config_int("INTERVIEW_QUESTION_TIMEOUT_SECONDS", 6),
+                timeout=min(
+                    _config_int("INTERVIEW_QUESTION_TIMEOUT_SECONDS", 6),
+                    remaining_timeout,
+                ),
             )
             if result.status != "success":
                 provider_error = result.metadata.get("error", "")
@@ -2391,19 +2514,24 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
                 str(parsed.get("question", "")),
                 generated_category,
                 previous_questions, action, focus_keyword, session.get("current_category", ""),
+                session.get("knowledge_boundaries", []),
             )
             category = candidate_category
             logger.info(
-                "Question generation accepted: session=%s type=%s action=%s attempt=%s latency_ms=%s",
+                "Question generation accepted: session=%s type=%s action=%s attempt=%s attempt_latency_ms=%s total_latency_ms=%s",
                 session.get("session_id"), session.get("interview_type"), action, attempt + 1,
+                round((time.perf_counter() - attempt_started) * 1000),
                 round((time.perf_counter() - generation_started) * 1000),
             )
             return _question_response(session, question, category, action, answer, analysis)
         except Exception as exc:
             logger.warning(
-                "Conversation question generation rejected: session=%s type=%s action=%s reason=%s",
-                session.get("session_id"), session.get("interview_type"), action, str(exc),
+                "Conversation question generation rejected: session=%s type=%s action=%s attempt=%s attempt_latency_ms=%s reason=%s",
+                session.get("session_id"), session.get("interview_type"), action, attempt + 1,
+                round((time.perf_counter() - attempt_started) * 1000), str(exc),
             )
+            if time.monotonic() >= generation_deadline:
+                break
             if _is_provider_rate_limit(exc):
                 break
 
@@ -2415,6 +2543,8 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
         )
         if question_is_duplicate(question, previous_questions):
             question = f"Which technical problem have you solved that is most relevant to {session.get('role', 'this role')}?"
+    elif action in {"CHANGE_TOPIC", "MOVE_ON"} and session.get("knowledge_boundaries"):
+        question = "Let's explore another relevant area. How do you approach validating input and handling failures in an application?"
     elif action in {"CHANGE_TOPIC", "MOVE_ON"}:
         role = session.get("role", "this role")
         question = f"Let's move to a different area. How would you design a reliable service for a {role} product?"
@@ -2424,6 +2554,11 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
         question = fallback_question(action, focus_keyword or session.get("current_topic", "your approach"), previous_questions)
     if question_is_duplicate(question, previous_questions):
         keyword = focus_keyword or session.get("current_topic", "your approach")
+        if any(
+            str(boundary).casefold() in str(keyword).casefold()
+            for boundary in session.get("knowledge_boundaries", [])
+        ):
+            keyword = "your approach"
         alternatives = [
             f"What would you measure to evaluate {keyword} in this situation?",
             f"How would {keyword} behave if the workload doubled?",
@@ -2574,6 +2709,11 @@ async def api_interview_respond(request: Request, db: Session = Depends(get_db))
         answer_analysis["transcription_suspicion"] = bool(transcript_result["suspicious_term"])
         answer_analysis["normalization_applied"] = transcript_result["normalization_applied"]
         analysis = answer_analysis
+        if analysis.get("explicit_knowledge_gap"):
+            boundaries = session.setdefault("knowledge_boundaries", [])
+            for gap_topic in analysis.get("knowledge_gap_topics", []):
+                if gap_topic.casefold() not in {str(value).casefold() for value in boundaries}:
+                    boundaries.append(gap_topic)
         qa = {
             "question": current_question,
             "answer": normalized_answer,
@@ -2803,6 +2943,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                 "timestamp": qa.get("timestamp", ""),
                 "score": ca.get("score"),
                 "evaluation_available": ca.get("evaluation_available", False),
+                "feedback": ca.get("feedback", "") if ca.get("evaluation_available", False) else ca.get("feedback", "Evaluation unavailable."),
                 "strengths": strengths if ca.get("evaluation_available", False) else [],
                 "weaknesses": weaknesses if ca.get("evaluation_available", False) else [],
                 "ideal_answer": ca.get("ideal_answer", "") if ca.get("evaluation_available", False) else "",
@@ -2818,7 +2959,13 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         # -- FEATURE 8: Assemble Report --------------------------------
         jd_analysis = session.get("jd_analysis")
-        if not jd_analysis and job_description:
+        # The interview-start path seeds an empty sentinel to avoid work on the
+        # question-generation path. Treat that sentinel as missing report data.
+        has_jd_analysis = isinstance(jd_analysis, dict) and any(
+            jd_analysis.get(key) not in (None, [], "")
+            for key in ("matched_skills", "missing_skills", "ats_score")
+        )
+        if job_description and not has_jd_analysis:
             resume_text = resume_store.get(user.username, "")
             jd_analysis = await analyze_resume_vs_jd(
                 resume_text,
@@ -2872,6 +3019,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         # Expose weak topics at the top level for report.html
         report["weak_topics"] = categorize_weak_topics(content_result.get("weak_topics", []))
+        report["weak_topics_display"] = _evidence_supported_weak_topics(detailed_answers)
 
         # ============================================================
         # RL: BANDIT-BASED COURSE RECOMMENDATION & REWARD FEEDBACK
@@ -3088,6 +3236,10 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         # Add the database ID to the report for linking in the placement report
         report["interview_id"] = interview_row.id
+        # Keep the stable identifier in the persisted JSON as well as the DB row.
+        interview_row.report_json = json.dumps(report, ensure_ascii=False, default=str)
+        report_store[user.username] = report
+        db.commit()
 
         # Update rich UserSkillProfile based on this interview
         profile_row = get_or_create_user_profile(db, user)
@@ -3287,8 +3439,11 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                 attempt_metadata["evaluation"] = {
                     "available": bool(ca.get("evaluation_available", False)),
                     "score": ca.get("score"),
+                    "feedback": ca.get("feedback", ""),
                     "strengths": ca.get("strengths", []),
                     "weaknesses": ca.get("weaknesses", []),
+                    "ideal_answer": ca.get("ideal_answer", ""),
+                    "weak_topics": ca.get("weak_topics", []),
                 }
                 saved_attempt.feedback = json.dumps(attempt_metadata, ensure_ascii=False)
             else:
@@ -3298,7 +3453,18 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                     topic="voice-interview",
                     difficulty=level,
                     answer=qa.get("answer", ""),
-                    feedback=json.dumps({"question": qa.get("question", "")}, ensure_ascii=False),
+                    feedback=json.dumps({
+                        "question": qa.get("question", ""),
+                        "evaluation": {
+                            "available": bool(ca.get("evaluation_available", False)),
+                            "score": ca.get("score"),
+                            "feedback": ca.get("feedback", ""),
+                            "strengths": ca.get("strengths", []),
+                            "weaknesses": ca.get("weaknesses", []),
+                            "ideal_answer": ca.get("ideal_answer", ""),
+                            "weak_topics": ca.get("weak_topics", []),
+                        },
+                    }, ensure_ascii=False),
                 ))
 
         # Update skill progress
@@ -3316,6 +3482,8 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
             skill.attempts += 1
             skill.weak = overall < 50
 
+        # Persist the final report payload after profile/evaluation fields are attached.
+        interview_row.report_json = json.dumps(report, ensure_ascii=False, default=str)
         db.commit()
         logger.info(
             "Candidate state persisted: user_id=%s session=%s profile_updated=true",
@@ -3461,8 +3629,14 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 # ===========================================================================
 # REPORT PAGE
 # ===========================================================================
-def _get_resources_by_concept(course_id: int, db: Session) -> dict:
-    """Return CourseResource rows grouped by concept, ordered by priority then rank."""
+async def _get_resources_by_concept(
+    course_id: int,
+    db: Session,
+    allowed_concepts: set[str] | None = None,
+) -> dict:
+    """Return ranked direct resources, resolving old generic links when needed."""
+    from urllib.parse import parse_qs, urlparse
+
     resources = (
         db.query(CourseResource)
         .filter(CourseResource.course_id == course_id)
@@ -3474,19 +3648,216 @@ def _get_resources_by_concept(course_id: int, db: Session) -> dict:
     )
     grouped: dict = {}
     concept_priority: dict[str, int] = {}
+    seen_urls: set[tuple[str, str]] = set()
+    resolved_searches: dict[tuple[str, str], list[dict]] = {}
+    fetcher_by_source = {
+        fetcher.source: fetcher
+        for fetcher in (resource_pipeline.fetchers if resource_pipeline else [])
+    }
+    changed = False
     for cr in resources:
         concept = cr.concept or "General"
+        if allowed_concepts is not None and not _resource_concept_matches_weakness(concept, allowed_concepts):
+            continue
         if concept not in grouped:
             grouped[concept] = []
             concept_priority[concept] = cr.priority_order if cr.priority_order is not None else 0
-        grouped[concept].append(cr)
+        source = (cr.source or "").casefold()
+        title = cr.title or concept
+        stored_url = cr.url or ""
+        parsed = urlparse(stored_url)
+        direct = False
+        if "youtube" in source:
+            host = parsed.netloc.casefold()
+            is_youtube_host = host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+            direct = bool(parsed.scheme == "https" and is_youtube_host and (
+                (parsed.path == "/watch" and video_id) or (host == "youtu.be" and parsed.path.strip("/"))
+            ))
+        elif "geeks" in source:
+            host = parsed.netloc.casefold().split(":", 1)[0]
+            direct = bool(
+                parsed.scheme == "https"
+                and (host == "geeksforgeeks.org" or host.endswith(".geeksforgeeks.org"))
+                and parsed.path not in {"/search/", "/search", "/"}
+                and not parsed.path.startswith("/search/")
+            )
+        else:
+            direct = parsed.scheme == "https" and bool(parsed.netloc)
 
+        # Old database rows can still contain GFG/YouTube search destinations.
+        # Resolve each concept once through the existing ranked-source fetchers;
+        # do not render search pages as if they were the recommended resource.
+        if not direct and ("youtube" in source or "geeks" in source):
+            source_key = "youtube" if "youtube" in source else "geeksforgeeks"
+            lookup_key = (source_key, concept.casefold())
+            if lookup_key not in resolved_searches:
+                fetcher = fetcher_by_source.get(source_key)
+                try:
+                    if source_key == "geeksforgeeks" and fetcher:
+                        candidates = await fetcher._google_article_search(concept, limit=5)
+                        if not candidates:
+                            candidates = await fetcher.search(concept, limit=3)
+                    else:
+                        candidates = await fetcher.search(concept, limit=3) if fetcher else []
+                except Exception as exc:
+                    logger.warning("Could not resolve saved %s resource for %s: %s", source_key, concept, exc)
+                    candidates = []
+                candidates = candidates or []
+                resolved_searches[lookup_key] = [
+                    item for item in candidates
+                    if _is_direct_learning_url(source_key, item.get("url", ""))
+                ]
+            candidate = next((
+                item for item in resolved_searches[lookup_key]
+                if _learning_resource_identity(source_key, item.get("url", "")) not in seen_urls
+            ), None)
+            if candidate:
+                stored_url = candidate["url"]
+                title = candidate.get("title") or title
+
+        if not stored_url or not _is_direct_learning_url(source, stored_url):
+            continue
+        dedupe_key = _learning_resource_identity(source, stored_url)
+        if dedupe_key in seen_urls:
+            continue
+        seen_urls.add(dedupe_key)
+        if cr.url != stored_url or cr.title != title:
+            cr.url = stored_url
+            cr.title = title
+            changed = True
+        grouped[concept].append({
+            "concept": concept,
+            "title": title,
+            "url": stored_url,
+            "source": cr.source,
+            "explanation": cr.explanation,
+            "link_label": "Watch video" if "youtube" in source else "Read article" if "geeks" in source else "Open resource",
+        })
+
+    if changed:
+        db.commit()
+
+    grouped = {concept: entries for concept, entries in grouped.items() if entries}
     return dict(
         sorted(
             grouped.items(),
             key=lambda item: (concept_priority.get(item[0], 0), item[0].lower()),
         )
     )
+
+
+def _resource_concept_matches_weakness(concept: str, weaknesses: set[str]) -> bool:
+    normalized = " ".join(re.findall(r"[a-z0-9+#.]+", str(concept or "").casefold()))
+    return any(
+        normalized == weakness
+        or normalized.startswith(weakness + " ")
+        or weakness.startswith(normalized + " ")
+        for weakness in weaknesses
+        if weakness and normalized
+    )
+
+
+def _is_direct_learning_url(source: str, url: str) -> bool:
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme != "https" or not parsed.netloc:
+        return False
+    source = (source or "").casefold()
+    if "youtube" in source:
+        host = parsed.netloc.casefold()
+        return (
+            (host in {"youtube.com", "www.youtube.com", "m.youtube.com"} and parsed.path == "/watch" and bool(parse_qs(parsed.query).get("v", [""])[0]))
+            or (host == "youtu.be" and bool(parsed.path.strip("/")))
+        )
+    if "geeks" in source:
+        host = parsed.netloc.casefold().split(":", 1)[0]
+        return (
+            (host == "geeksforgeeks.org" or host.endswith(".geeksforgeeks.org"))
+            and parsed.path not in {"/", "/search", "/search/"}
+            and not parsed.path.startswith("/search/")
+        )
+    return True
+
+
+def _learning_resource_identity(source: str, url: str) -> tuple[str, str]:
+    from urllib.parse import parse_qs, urlparse
+
+    parsed = urlparse(str(url or ""))
+    if "youtube" in (source or "").casefold():
+        identity = parse_qs(parsed.query).get("v", [""])[0] or parsed.path.strip("/")
+    else:
+        identity = parsed.path.rstrip("/").casefold()
+    return (str(source or "").casefold(), identity)
+
+
+async def _repair_persisted_report(report: dict, interview: Interview, db: Session) -> dict:
+    """Backfill report-only fields for older persisted reports without changing interview state."""
+    answers = report.get("detailed_answers") or []
+    missing_indexes = [
+        index for index, answer in enumerate(answers)
+        if isinstance(answer, dict) and (
+            not answer.get("evaluation_available", False)
+            or answer.get("score") is None
+            or not answer.get("strengths")
+            or not answer.get("weaknesses")
+            or not answer.get("ideal_answer")
+        )
+    ]
+    needs_persist = bool(missing_indexes)
+    if missing_indexes:
+        missing_answers = [{
+            "question": answers[index].get("question", ""),
+            "answer": answers[index].get("transcript", ""),
+            "topic": answers[index].get("topic", ""),
+        } for index in missing_indexes]
+        candidate = report.get("candidate_profile") or {}
+        repaired = await evaluate_content(
+            role=report.get("role") or candidate.get("role") or interview.role or "Candidate",
+            level=candidate.get("level", "Junior"),
+            questions_answers=missing_answers,
+            interview_type=report.get("interview_type", "technical"),
+        )
+        for index, evaluation in zip(missing_indexes, repaired.get("answers", [])):
+            answer = answers[index]
+            answer.update({
+                "score": evaluation.get("score"),
+                "evaluation_available": bool(evaluation.get("evaluation_available")),
+                "feedback": evaluation.get("feedback") or (
+                    "; ".join(evaluation.get("weaknesses", []))
+                    if evaluation.get("evaluation_available") else "Evaluation unavailable from the evaluation service."
+                ),
+                "strengths": evaluation.get("strengths", []),
+                "weaknesses": evaluation.get("weaknesses", []),
+                "ideal_answer": evaluation.get("ideal_answer", ""),
+                "weak_topics": evaluation.get("weak_topics", []),
+            })
+
+        available_scores = [
+            answer.get("score") for answer in answers
+            if answer.get("evaluation_available") and answer.get("score") is not None
+        ]
+        content = report.setdefault("content_analysis", {})
+        content["average_score"] = round(sum(available_scores) / len(available_scores)) if available_scores else None
+        content["evaluation_available"] = bool(available_scores)
+        existing_topics = _extract_report_weak_topics(report)
+        all_topics = existing_topics + [
+            topic for answer in answers for topic in answer.get("weak_topics", [])
+        ]
+        report["weak_topics"] = categorize_weak_topics(list(dict.fromkeys(all_topics)))
+    if not report.get("performance_summary") or report.get("performance_summary") == "Summary unavailable.":
+        report["performance_summary"] = await generate_performance_summary(report)
+        needs_persist = True
+    concise_weaknesses = _evidence_supported_weak_topics(answers)
+    if report.get("weak_topics_display") != concise_weaknesses:
+        report["weak_topics_display"] = concise_weaknesses
+        needs_persist = True
+    report["interview_id"] = interview.id
+    if needs_persist:
+        interview.report_json = json.dumps(report, ensure_ascii=False, default=str)
+        db.commit()
+    return report
 
 
 @app.get("/placement-report", response_class=HTMLResponse)
@@ -3609,30 +3980,51 @@ def saved_placement_report_page(request: Request, anchor_id: int, db: Session = 
     })
 
 @app.get("/report", response_class=HTMLResponse)
-def report_page(request: Request, db: Session = Depends(get_db)):
+async def report_page(request: Request, db: Session = Depends(get_db)):
     """Render the full interview performance report."""
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse("/login")
-    report = report_store.get(user.username)
+    report = None
+    report_id = None
+    latest = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.desc()).first()
+    if latest and latest.report_json:
+        try:
+            report = json.loads(latest.report_json)
+            report_id = latest.id
+            report["interview_id"] = latest.id
+            report = await _repair_persisted_report(report, latest, db)
+        except (TypeError, ValueError):
+            report = None
+    if report is None:
+        report = report_store.get(user.username)
     if not report:
         return RedirectResponse("/index")
+    report.setdefault(
+        "weak_topics_display",
+        _evidence_supported_weak_topics(report.get("detailed_answers") or []),
+    )
 
     course_id = report.get("new_course_id")
-    resources_by_concept = _get_resources_by_concept(course_id, db) if course_id else {}
+    allowed_concepts = {
+        str(topic).casefold()
+        for topics in report.get("weak_topics_display", {}).values()
+        for topic in topics
+    }
+    resources_by_concept = await _get_resources_by_concept(course_id, db, allowed_concepts) if course_id else {}
 
     return templates.TemplateResponse(request, "report.html", {
             "request": request,
             "username": user.username,
             "report": report,
-            "report_id": report.get("interview_id"),
+            "report_id": report_id or report.get("interview_id"),
             "resources_by_concept": resources_by_concept,
         },
     )
 
 
 @app.get("/interview-report/{interview_id}", response_class=HTMLResponse)
-def interview_report_page(
+async def interview_report_page(
     request: Request,
     interview_id: int,
     db: Session = Depends(get_db),
@@ -3666,8 +4058,16 @@ def interview_report_page(
     except Exception:
         report = {}
 
+    report["interview_id"] = interview.id
+    report = await _repair_persisted_report(report, interview, db)
+
     course_id = report.get("new_course_id")
-    resources_by_concept = _get_resources_by_concept(course_id, db) if course_id else {}
+    allowed_concepts = {
+        str(topic).casefold()
+        for topics in report.get("weak_topics_display", {}).values()
+        for topic in topics
+    }
+    resources_by_concept = await _get_resources_by_concept(course_id, db, allowed_concepts) if course_id else {}
 
     return templates.TemplateResponse(request, "report.html", {
             "request": request,

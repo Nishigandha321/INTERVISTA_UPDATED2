@@ -230,13 +230,18 @@
   <h2>Performance Summary</h2>
   <div class="summary-text">{{ report.performance_summary }}</div>
 </section>
+{% else %}
+<section class="card fade-in">
+  <h2>Performance Summary</h2>
+  <div class="summary-text">A summary could not be generated for this report.</div>
+</section>
 {% endif %}
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
 <!-- 3. JOB MATCH (when JD was provided)                    -->
 <!-- ═══════════════════════════════════════════════════════ -->
-{% if report.job_match_analysis %}
+{% if report.job_match_analysis is defined and report.job_match_analysis is not none %}
 {% set jma = report.job_match_analysis %}
 <section class="card fade-in">
   <h2>Job Match Analysis</h2>
@@ -259,6 +264,9 @@
       {% endfor %}
     </ul>
   {% endif %}
+  {% if not jma.matched_skills and not jma.missing_skills and jma.ats_score is none %}
+    <p>Resume and job description were provided, but a skill comparison could not be completed.</p>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -269,8 +277,8 @@
 <section class="card fade-in">
   <h2>Areas for Improvement</h2>
 
-  {% if report.weak_topics %}
-    {% for category, topics in report.weak_topics.items() %}
+  {% if report.weak_topics_display %}
+    {% for category, topics in report.weak_topics_display.items() %}
       {% if topics %}
         <h3>{{ category }}</h3>
         <div class="topic-tags">
@@ -329,7 +337,7 @@
       <div class="plan-resource-link">
         {% if cr.url %}
           <a href="{{ cr.url }}" target="_blank" rel="noopener noreferrer">
-            {{ 'Watch ↗' if cr.source and 'youtube' in cr.source.lower() else 'Read ↗' }}
+            {{ cr.link_label or ('Watch' if cr.source and 'youtube' in cr.source.lower() else 'Read') }} ↗
           </a>
         {% endif %}
       </div>
@@ -453,14 +461,9 @@
   <details class="answer-card">
     <summary>
       <span class="question-title">Q{{ loop.index }}. {{ ans.question }}</span>
-      <span class="score-pill
-        {% if ans.evaluation_available is defined and not ans.evaluation_available %}yellow{% elif ans.score >= 70 %}green{% elif ans.score >= 40 %}yellow{% else %}red{% endif %}">
-        {% if ans.evaluation_available is not defined or ans.evaluation_available %}{{ ans.score }}/100{% else %}Evaluation unavailable{% endif %}
-      </span>
     </summary>
 
     <div class="answer-content">
-
       <div class="answer-section">
         <strong>Your Answer</strong>
         <div class="transcript-box">{{ ans.transcript }}</div>
@@ -484,13 +487,6 @@
       <div class="answer-section">
         <strong class="ideal">Ideal Answer</strong>
         <div class="ideal-box">{{ ans.ideal_answer }}</div>
-      </div>
-      {% endif %}
-
-      {% if ans.evaluation_available is defined and not ans.evaluation_available %}
-      <div class="answer-section">
-        <strong>Evaluation</strong>
-        <div class="transcript-box">Evaluation unavailable for this answer. Voice metrics are still shown below.</div>
       </div>
       {% endif %}
 

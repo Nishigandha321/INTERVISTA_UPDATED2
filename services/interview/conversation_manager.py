@@ -22,6 +22,9 @@ _TECH_TERMS = (
     "transaction", "ACID", "replication", "sharding", "load balancing", "concurrency",
     "thread", "lock", "event loop", "B-tree", "hash map", "binary search", "DFS", "BFS",
     "TCP", "HTTP", "TLS", "OAuth2", "pytest", "CI/CD", "Git", "Linux", "SQLAlchemy",
+    "Spring Boot", "health checks", "health check", "error handling", "retries", "retry",
+    "JSON", "serialization", "deserialization", "input validation", "null checks", "null",
+    "scalability", "scalable architecture", "system design", "observability", "logging",
 )
 _STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "at", "for", "with",
@@ -67,7 +70,8 @@ def question_is_duplicate(candidate: str, previous: list[str]) -> bool:
 
 
 def validate_generated_question(question: str, category: str, previous: list[str], action: str,
-                                focus_keyword: str = "", current_category: str = "") -> tuple[str, str]:
+                                focus_keyword: str = "", current_category: str = "",
+                                excluded_topics: list[str] | None = None) -> tuple[str, str]:
     """Enforce the generated-question contract before changing interview state."""
     question = " ".join((question or "").split())
     category = (category or "").strip()
@@ -86,6 +90,10 @@ def validate_generated_question(question: str, category: str, previous: list[str
         raise ValueError("Question response contains an invalid category")
     if question_is_duplicate(question, previous):
         raise ValueError("Question duplicates an earlier question")
+    for topic in excluded_topics or []:
+        topic = str(topic or "").strip()
+        if topic and re.search(r"(?<!\w)" + re.escape(topic) + r"(?!\w)", question, re.I):
+            raise ValueError("Question targets a candidate-declared knowledge gap")
     probe_actions = {"FOLLOW_UP", "CLARIFICATION", "DEEPEN", "CHALLENGE", "BEHAVIORAL_PROBE"}
     if action in probe_actions and focus_keyword.casefold() != _GENERIC_FOCUS and focus_keyword.casefold() not in question.casefold():
         raise ValueError("Follow-up question is not grounded in the candidate's answer")
@@ -137,11 +145,42 @@ def analyze_answer(question: str, answer: str, topic: str = "") -> dict:
         term for term in re.findall(r"[a-z][a-z0-9+#.-]+", (question or "").casefold())
         if term not in _STOPWORDS and term not in {"tell", "explain", "describe", "discuss", "walk", "through", "share", "give", "example", "project"}
     }
+    question_concepts = [term for term in _TECH_TERMS if re.search(
+        r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", (question or "").casefold()
+    )]
     answer_terms = {term.casefold() for term in words if term.casefold() not in _STOPWORDS}
     overlap_count = len(question_terms & answer_terms)
-    candidate_stuck = bool(
+    gap_match = re.search(
+        r"\b(?:i\s+(?:do not|don't|dont|cannot|can't)\s+know|"
+        r"i\s+(?:have|got)\s+no\s+experience\s+with|"
+        r"i(?:'m| am)\s+not\s+familiar\s+with)\b", lower
+    )
+    knowledge_gap_statement = gap_match is not None
+    low_confidence = bool(re.search(
+        r"\b(?:not\s+sure|unsure|not\s+confident|i\s+(?:think|guess)|maybe)\b", lower
+    ))
+    candidate_stuck = knowledge_gap_statement or bool(
         re.match(r"^(?:i (?:do not|don't|cannot|can't) know|not sure|no idea)\b", lower)
     )
+    knowledge_gap_topics = []
+    if knowledge_gap_statement:
+        # Prefer skills the candidate named; use the question's skill when they
+        # only said "I don't know it". Never turn the category label into a skill.
+        gap_tail = re.split(
+            r"\b(?:but|however|although|while)\b|[,;.!?]",
+            lower[gap_match.end():], maxsplit=1,
+        )[0]
+        for term in _TECH_TERMS:
+            if re.search(r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", gap_tail):
+                knowledge_gap_topics.append(term)
+        if not knowledge_gap_topics:
+            for term in _TECH_TERMS:
+                if re.search(r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", (question or "").casefold()):
+                    knowledge_gap_topics.append(term)
+        if not knowledge_gap_topics and topic and topic.casefold() not in {"technical", "hr", "behavioral"}:
+            knowledge_gap_topics.append(topic)
+    knowledge_gap_topics = list(dict.fromkeys(knowledge_gap_topics))
+    explicit_knowledge_gap = bool(knowledge_gap_topics)
     non_response = lower in {"skip", "(skipped)"} or candidate_stuck
     answered = len(words) >= 4 and not non_response and (overlap_count > 0 or len(words) >= 7)
     relevance = round(min(1.0, 0.45 + overlap_count * 0.15), 2) if answered else 0.1
@@ -157,6 +196,7 @@ def analyze_answer(question: str, answer: str, topic: str = "") -> dict:
         "answer_quality": round(quality, 2),
         "key_points": clauses[:4],
         "concepts_mentioned": concepts[:8],
+        "question_concepts": question_concepts,
         "evidence_provided": evidence,
         "missing_points": missing,
         "weaknesses": ["Answer is brief or lacks a concrete example"] if quality < 0.35 else [],
@@ -167,6 +207,9 @@ def analyze_answer(question: str, answer: str, topic: str = "") -> dict:
         "relevance_score": round(relevance * 100),
         "answered_question": answered,
         "candidate_stuck": candidate_stuck,
+        "explicit_knowledge_gap": explicit_knowledge_gap,
+        "knowledge_gap_topics": knowledge_gap_topics,
+        "low_confidence": low_confidence,
         "probe_worthy": bool(concepts or evidence or len(words) >= 12),
     }
 
@@ -177,6 +220,8 @@ def select_action(analysis: dict, probe_count: int, max_probes: int, turn_count:
     """Select an action while applying interview limits before any generation call."""
     if turn_count >= max_turns:
         return "END_INTERVIEW"
+    if analysis.get("explicit_knowledge_gap"):
+        return "CHANGE_TOPIC" if main_question_count < max_main_questions else "END_INTERVIEW"
     if probe_count >= max_probes:
         return "CHANGE_TOPIC" if main_question_count < max_main_questions else "END_INTERVIEW"
     if not analysis["answered_question"] and not analysis["probe_worthy"]:
