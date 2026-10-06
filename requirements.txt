@@ -12,6 +12,7 @@ jinja2
 psycopg2-binary
 
 groq
+openai
 google-generativeai
 langchain
 langchain-groq

@@ -38,7 +38,7 @@ def normalize_transcript(text: str) -> str:
 
 
 _TECH_CONTEXT = re.compile(
-    r"\b(technolog(?:y|ies)|stack|framework|library|database|backend|project|"
+    r"\b(technical|technolog(?:y|ies)|stack|framework|library|database|backend|project|"
     r"programming|language|api|server|deployment|configuration)\b", re.IGNORECASE
 )
 _TECH_ALIASES = (
@@ -80,7 +80,7 @@ def normalize_candidate_transcript(
         terms = re.findall(r"\b(?:use(?:d)?|using|with|including)\s+([A-Z][a-z]{3,})\b", raw)
         known = {term.casefold() for term in _KNOWN_TECH_TERMS}
         for term in terms:
-            if term.casefold() not in known and not re.search(r"\b" + re.escape(term) + r"\b", context):
+            if term.casefold() not in known and not re.search(r"\b" + re.escape(term) + r"\b", context, re.IGNORECASE):
                 suspicious_term = term
                 break
     return {

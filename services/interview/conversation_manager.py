@@ -97,6 +97,13 @@ def validate_generated_question(question: str, category: str, previous: list[str
     probe_actions = {"FOLLOW_UP", "CLARIFICATION", "DEEPEN", "CHALLENGE", "BEHAVIORAL_PROBE"}
     if action in probe_actions and focus_keyword.casefold() != _GENERIC_FOCUS and focus_keyword.casefold() not in question.casefold():
         raise ValueError("Follow-up question is not grounded in the candidate's answer")
+    if (
+        action in probe_actions
+        and focus_keyword.casefold() == _GENERIC_FOCUS
+        and current_category.casefold() in {"technical", "coding", "skill-based", "project-specific"}
+        and not re.search(r"\b(?:clarify|what did you mean|which (?:tool|technology|choice)|what (?:choice|action|part|point))\b", question, re.I)
+    ):
+        raise ValueError("Ambiguous technical answer requires clarification, not a guessed concept")
     if action in {"CHANGE_TOPIC", "MOVE_ON"} and category == current_category:
         raise ValueError("The new main question must use a different category")
     return question, category
@@ -121,10 +128,8 @@ def analyze_answer(question: str, answer: str, topic: str = "") -> dict:
     for term in _TECH_TERMS:
         if re.search(r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", lower):
             concepts.append(term)
-    # Capture project names and other named technologies when speech text has no known term.
-    for name in re.findall(r"\b[A-Z][A-Za-z0-9+#.-]{2,}\b", clean_answer):
-        if name.casefold() not in {value.casefold() for value in concepts} and name.casefold() not in _STOPWORDS:
-            concepts.append(name)
+    # Do not promote arbitrary capitalized words (names, sentence starts, or ASR
+    # artifacts) to technical concepts. Follow-up focus uses the known-term list.
     clauses = [part.strip() for part in re.split(r"[,;.!?]+", clean_answer) if len(part.split()) >= 3]
     evidence_markers = (
         "i built", "i implemented", "i designed", "i chose", "i measured", "because",
@@ -244,22 +249,55 @@ def select_action(analysis: dict, probe_count: int, max_probes: int, turn_count:
     return "CLARIFICATION"
 
 
-def choose_focus_keyword(answer: str, analysis: dict) -> str:
-    """Pick an answer-grounded phrase for follow-up validation and fallback wording."""
-    concepts = analysis.get("concepts_mentioned") or []
-    answer_lower = (answer or "").casefold()
-    known_concepts = [term for term in _TECH_TERMS if re.search(
-        r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", answer_lower
-    )]
-    if concepts:
-        generic = {"api", "sql", "authentication", "authorization", "async", "asynchronous", "cache", "caching", "thread", "transaction", "concurrency", "indexing", "normalization"}
-        concrete = [term for term in known_concepts if str(term).casefold() not in generic]
-        if concrete:
-            return str(concrete[-1])
-        return str((known_concepts or concepts)[-1])
-    candidates = [word.strip(".,!?;:()[]{}\"'") for word in (answer or "").split()]
-    candidates = [word for word in candidates if len(word) > 3 and word.casefold() not in _STOPWORDS]
-    return candidates[-1] if candidates else _GENERIC_FOCUS
+def choose_focus_keyword(
+    answer: str,
+    analysis: dict,
+    question: str = "",
+    adaptive_context: tuple[str, ...] | list[str] = (),
+) -> str:
+    """Choose a recognized concept from the answer, then the active question/state.
+
+    Unknown words are never used as focus terms; they may be names or transcription
+    noise. A question concept is a safe fallback when the candidate refers to it
+    indirectly (for example, "I used it").
+    """
+    generic = {
+        "api", "sql", "authentication", "authorization", "async", "asynchronous",
+        "cache", "caching", "thread", "transaction", "concurrency", "indexing",
+        "normalization",
+    }
+
+    def recognized_in(text: str) -> list[tuple[int, str]]:
+        found = []
+        lowered = (text or "").casefold()
+        for term in _TECH_TERMS:
+            match = re.search(r"(?<!\w)" + re.escape(term.casefold()) + r"(?!\w)", lowered)
+            if match:
+                found.append((match.start(), term))
+        return sorted(found)
+
+    answer_terms = recognized_in(answer)
+    question_terms = recognized_in(question)
+    if not question_terms:
+        question_terms = [
+            (0, str(term)) for term in (analysis.get("question_concepts") or [])
+            if str(term).casefold() in {known.casefold() for known in _TECH_TERMS}
+        ]
+    if not question_terms:
+        question_terms = [
+            (0, term) for context in adaptive_context for _, term in recognized_in(str(context))
+        ]
+    answer_concrete = [item for item in answer_terms if item[1].casefold() not in generic]
+    if answer_concrete:
+        return answer_concrete[-1][1]
+    question_concrete = [item for item in question_terms if item[1].casefold() not in generic]
+    if question_concrete:
+        return question_concrete[-1][1]
+    if answer_terms:
+        return answer_terms[-1][1]
+    if question_terms:
+        return question_terms[-1][1]
+    return _GENERIC_FOCUS
 
 
 def fallback_question(action: str, keyword: str, question_history: list[str]) -> str:

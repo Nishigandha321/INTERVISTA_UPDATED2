@@ -245,28 +245,41 @@
 {% set jma = report.job_match_analysis %}
 <section class="card fade-in">
   <h2>Job Match Analysis</h2>
-  {% if jma.ats_score is not none %}
+  {% if jma.has_job_description and jma.ats_score is not none %}
     <p><strong>ATS Match Score:</strong> {{ jma.ats_score }}/100</p>
   {% endif %}
-  {% if jma.matched_skills %}
-    <h3>Matched Skills</h3>
+  {% if jma.has_job_description and jma.matched_skills %}
+    <h3>Resume skills matched to the role</h3>
     <ul class="skill-match-list">
       {% for skill in jma.matched_skills %}
         <li><span class="skill-match-ok">&#10003;</span> {{ skill }}</li>
       {% endfor %}
     </ul>
   {% endif %}
-  {% if jma.missing_skills %}
-    <h3>Missing Skills</h3>
+  {% if jma.has_job_description and jma.missing_skills %}
+    <h3>Resume skills not listed for the role</h3>
     <ul class="skill-match-list">
       {% for skill in jma.missing_skills %}
         <li><span class="skill-match-gap">&#10007;</span> {{ skill }}</li>
       {% endfor %}
     </ul>
   {% endif %}
-  {% if not jma.matched_skills and not jma.missing_skills and jma.ats_score is none %}
+  {% if jma.skills_demonstrated %}
+    <h3>Skills demonstrated in your answers</h3>
+    <ul class="skill-match-list">
+      {% for skill in jma.skills_demonstrated %}<li><span class="skill-match-ok">&#10003;</span> {{ skill }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  {% if jma.skills_to_work_on %}
+    <h3>Skills to work on</h3>
+    <ul class="skill-match-list">
+      {% for skill in jma.skills_to_work_on %}<li><span class="skill-match-gap">&#10007;</span> {{ skill }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  {% if jma.has_job_description and not jma.matched_skills and not jma.missing_skills and jma.ats_score is none %}
     <p>Resume and job description were provided, but a skill comparison could not be completed.</p>
   {% endif %}
+  {% if not jma.has_job_description %}<p>Skill findings below are based on your interview answers; provide a job description to see role-specific matching.</p>{% endif %}
 </section>
 {% endif %}
 

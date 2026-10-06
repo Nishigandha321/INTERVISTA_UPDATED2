@@ -121,6 +121,19 @@ class ConversationDecisionTests(unittest.TestCase):
         self.assertNotIn("Customers", analysis["concepts_mentioned"])
         self.assertNotEqual(choose_focus_keyword(answer, analysis), "Customers")
 
+    def test_unknown_capitalized_asr_word_is_not_a_technical_focus(self):
+        question = "Describe your project."
+        answer = "I used Netaji and it helped the team."
+        analysis = analyze_answer(question, answer, "technical")
+        self.assertNotIn("Netaji", analysis["concepts_mentioned"])
+        self.assertEqual(choose_focus_keyword(answer, analysis, question), "your approach")
+
+    def test_indirect_answer_uses_real_concept_from_current_question(self):
+        question = "How did you use Java in the service?"
+        answer = "I used it for the API layer."
+        analysis = analyze_answer(question, answer, "technical")
+        self.assertEqual(choose_focus_keyword(answer, analysis, question), "Java")
+
     def test_invalid_audience_and_unnamed_tradeoff_questions_are_rejected(self):
         with self.assertRaises(ValueError):
             validate_generated_question(

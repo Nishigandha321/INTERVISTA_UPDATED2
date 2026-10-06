@@ -106,3 +106,64 @@ body.intervista-app { background:radial-gradient(ellipse at 88% 90%,rgba(242,112
   .target-chips span + span { border-left:0; }
 }
 @media (max-width:520px) { .snapshot-grid { grid-template-columns:1fr 1fr; }.snapshot-grid article:nth-child(even) { border-left:1px solid #e7e7e8; }.snapshot-grid article:nth-child(n+3) { border-top:1px solid #e7e7e8; } }
+
+/* Shared GD-inspired finish for the authenticated workspace. */
+.intervista-app :where(a,button,input,select,textarea,summary):focus-visible {
+  outline:3px solid rgba(232,93,52,.34);
+  outline-offset:3px;
+}
+.intervista-app .app-page-header { align-items:center; }
+.intervista-app .app-page-header .eyebrow { margin-bottom:13px; }
+.intervista-app .lede { max-width:660px; }
+.intervista-app .primary-button,
+.intervista-app .secondary-button { transition:transform .18s ease,background-color .18s ease,box-shadow .18s ease; }
+.intervista-app .primary-button:hover,
+.intervista-app .secondary-button:hover { transform:translateY(-1px); }
+.intervista-app .primary-button:active,
+.intervista-app .secondary-button:active { transform:translateY(0); }
+.intervista-app .primary-button { background:#202a35; box-shadow:0 7px 16px rgba(32,42,53,.12); }
+.intervista-app .primary-button:hover { background:#37424e; box-shadow:0 9px 20px rgba(32,42,53,.16); }
+.intervista-app .secondary-button { color:#202a35; }
+
+/* Dashboard: give profile, readiness and trend data a clear reading order. */
+.intervista-app:has(#skill-snapshot) .app-page-header { margin-bottom:48px; }
+.intervista-app:has(#skill-snapshot) #preparation-profile { padding-bottom:42px; }
+.intervista-app:has(#skill-snapshot) .prep-form { margin-top:38px; }
+.intervista-app:has(#skill-snapshot) .resume-upload { min-height:340px; }
+.intervista-app:has(#skill-snapshot) #skill-snapshot { padding-top:8px; }
+.intervista-app:has(#skill-snapshot) .snapshot-grid { margin-top:30px; }
+.intervista-app:has(#skill-snapshot) .snapshot-grid strong { font-variant-numeric:tabular-nums; }
+.intervista-app:has(#skill-snapshot) .performance-panel { padding-top:9px; }
+.intervista-app:has(#skill-snapshot) .chart-wrap { margin-top:34px; }
+
+/* Practice options: distinct choices, with a clear primary action per mode. */
+.practice-main .target-panel { padding-bottom:27px; }
+.practice-main .target-chips { align-items:center; }
+.practice-main .target-chips span { padding:8px 12px; border-radius:7px; }
+.practice-main .practice-section { margin-top:48px; }
+.practice-main .mode-card { position:relative; padding-top:16px; }
+.practice-main .mode-card + .mode-card { border-left-color:#dedfe1; }
+.practice-main .mode-icon { width:42px; height:42px; font-size:19px; }
+.practice-main .mode-card h2 { margin-top:20px; }
+.practice-main .mode-card .primary-button { margin-top:22px; }
+.practice-main .mode-card select:hover,
+.practice-main .mode-card select:focus-visible { border-color:#e85d34; }
+
+/* History: improve scan order and make each report action easy to find. */
+.history-panel .panel-title { margin-bottom:28px; }
+.history-role + .history-role { margin-top:40px; }
+.history-role h3 { padding:0 0 12px; }
+.history-entry { padding:23px 0; }
+.history-entry > div:first-child { min-width:0; }
+.history-entry h4 { margin:7px 0 5px; font-size:18px; }
+.history-entry > div:last-child > strong { font-variant-numeric:tabular-nums; }
+.history-entry .primary-button { min-height:40px; padding:0 15px; font-size:13px; }
+.history-entry:hover { background:linear-gradient(90deg,rgba(255,244,239,.65),transparent 78%); }
+.history-entry .history-date { font-size:12px; letter-spacing:.035em; }
+
+@media (max-width:720px) {
+  .intervista-app:has(#skill-snapshot) .app-page-header { margin-bottom:30px; }
+  .intervista-app:has(#skill-snapshot) .resume-upload { min-height:250px; }
+  .practice-main .practice-section { margin-top:32px; }
+  .history-entry:hover { background:transparent; }
+}

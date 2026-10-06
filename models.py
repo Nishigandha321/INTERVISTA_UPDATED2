@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from database import Base
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # =========================
@@ -378,4 +378,23 @@ class CourseResource(Base):
     resource_metadata = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GroupDiscussionSession(Base):
+    """Persistent state for the isolated, round-robin GD feature."""
+
+    __tablename__ = "group_discussion_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    public_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    state_json = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="active", index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        nullable=False,
+    )
 

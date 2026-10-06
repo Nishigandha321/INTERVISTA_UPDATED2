@@ -157,3 +157,81 @@ def test_report_requires_finished_session_or_explicit_early_end_and_uses_server_
     assert session["finished"] is True
     assert accepted == answers
 
+
+def test_multi_question_evaluations_keep_question_identity_and_all_fields(monkeypatch):
+    class EvaluationChain:
+        async def invoke(self, payload, **kwargs):
+            question = payload["question"]
+            return SimpleNamespace(
+                status="success",
+                output=json.dumps({
+                    "score": 82, "relevance_score": 80, "explanation_depth_score": 78,
+                    "star_method_score": 70, "structured_thinking_score": 82,
+                    "problem_solving_score": 80, "strengths": [f"Relevant answer for {question}"],
+                    "weaknesses": [f"Add an example for {question}"],
+                    "ideal_answer": f"A concise ideal answer for {question}.",
+                    "weak_topics": [], "C": 0.8, "K": 0.8, "F": 0.8, "S": 0.8,
+                }),
+            )
+
+    monkeypatch.setattr(main, "evaluation_chain", EvaluationChain())
+    questions = [
+        {"_attempt_id": 101, "question": "Explain Java inheritance.", "answer": "Java supports inheritance."},
+        {"_attempt_id": 102, "question": "Explain SQL indexes.", "answer": "Indexes speed up database lookups."},
+        {"_attempt_id": 103, "question": "Explain API validation.", "answer": "The API validates each request."},
+    ]
+    result = asyncio.run(main.evaluate_content("Engineer", "Junior", questions))
+    evaluations = result["answers"]
+    assert len(evaluations) == len(questions)
+    reordered = list(reversed(evaluations))
+    for index, question in enumerate(questions):
+        evaluation = main._evaluation_for_answer(question, index, reordered)
+        assert evaluation["attempt_id"] == question["_attempt_id"]
+        assert evaluation["question"] == question["question"]
+        assert evaluation["candidate_answer"] == question["answer"]
+        assert evaluation["evaluation_available"] is True
+        assert evaluation["strengths"]
+        assert evaluation["weaknesses"]
+        assert evaluation["ideal_answer"]
+
+
+def test_report_summary_uses_answer_facts_and_stays_within_three_sentences():
+    report = {
+        "overall_score": 76,
+        "content_analysis": {"average_score": 76},
+        "detailed_answers": [
+            {
+                "question": "Explain the API design.", "transcript": "I used FastAPI and JWT.",
+                "evaluation_available": True, "score": 82,
+                "strengths": ["Explained the API security choice clearly."],
+                "weaknesses": ["Add a concrete example of failure handling."],
+                "weak_topics": ["JWT"],
+            },
+            {
+                "question": "How did you test it?", "transcript": "I ran the tests.",
+                "evaluation_available": True, "score": 70,
+                "strengths": ["Kept testing focused."],
+                "weaknesses": ["Explain what the test results showed."],
+                "weak_topics": [],
+            },
+        ],
+    }
+    summary = asyncio.run(main.generate_performance_summary(report))
+    sentence_count = len([part for part in summary.split(".") if part.strip()])
+    assert sentence_count <= 3
+    assert "Explained the API security choice clearly" in summary
+    assert "failure handling" in summary
+
+
+def test_job_skill_findings_use_evaluation_strengths_and_weaknesses():
+    demonstrated, work_on = main._interview_skill_findings([{
+        "question": "How did you secure the API?",
+        "transcript": "I used JWT to protect each endpoint.",
+        "topic": "technical", "evaluation_available": True, "score": 84,
+        "strengths": ["Clear explanation of JWT-based authorization."],
+        "weaknesses": ["Discuss token expiry and failure handling."],
+        "weak_topics": ["JWT"],
+    }])
+    assert "JWT" in demonstrated
+    assert "Discuss token expiry and failure handling" in work_on
+

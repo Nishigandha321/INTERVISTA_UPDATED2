@@ -16,6 +16,7 @@ from pathlib import Path
 from utils.logging_config import configure_app_logging, log_startup_banner
 
 configure_app_logging()
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, UploadFile, File, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,6 +42,7 @@ from models import (
     Module,
     ModuleAttempt,
     CourseResource,
+    GroupDiscussionSession,
 )
 from user_skill_profile import (
     BasicUserInfo,
@@ -62,6 +64,8 @@ from user_skill_profile import (
 )
 from speech.transcription import normalize_transcript
 from core.llm.llm_service import LLMService
+from config.settings import settings as app_settings
+from groq import Groq
 from core.prompts.prompt_manager import PromptManager
 from services.rag.retriever import get_retriever
 from services.rag.rag_pipeline import get_or_create_rag_pipeline, initialize_rag
@@ -172,7 +176,27 @@ import shutil
 UPLOAD_DIR = "uploads"
 
 # New architecture instances
-llm_service = LLMService()
+llm_service = LLMService(
+    app_settings,
+    provider="openrouter",
+    model_name=app_settings.gd_model_name,
+    purpose="Application LLM",
+)
+gd_llm_service = LLMService(
+    app_settings,
+    provider="openrouter",
+    model_name=app_settings.gd_model_name,
+    purpose="GD LLM",
+)
+interview_llm_service = LLMService(
+    app_settings,
+    provider="groq",
+    model_name=app_settings.interview_model_name,
+    purpose="Interview LLM",
+)
+stt_client = Groq(api_key=app_settings.groq_api_key) if app_settings.groq_api_key else None
+if stt_client:
+    logger.info("STT → Groq / whisper-large-v3-turbo")
 prompt_manager = PromptManager()
 retriever = get_retriever()
 
@@ -182,9 +206,9 @@ rag_pipeline = None
 # Learning Resources Pipeline (Phase 2) - initialized on startup
 resource_pipeline = None
 
-question_chain = InterviewQuestionChain(llm_service, prompt_manager, retriever)
-evaluation_chain = EvaluationChain(llm_service, prompt_manager, retriever)
-summary_chain = SummaryChain(llm_service, prompt_manager, retriever)
+question_chain = InterviewQuestionChain(interview_llm_service, prompt_manager, retriever)
+evaluation_chain = EvaluationChain(interview_llm_service, prompt_manager, retriever)
+summary_chain = SummaryChain(interview_llm_service, prompt_manager, retriever)
 
 TECHNICAL_QUESTION_COUNT = 5
 OA_QUESTION_COUNT = 10
@@ -252,11 +276,20 @@ def _evidence_supported_weak_topics(detailed_answers: list[dict], limit: int = 4
         response = str(answer.get("transcript") or "").casefold()
         question_text = str(answer.get("question") or "").casefold()
         has_explicit_gap = bool(explicit_gap.search(response))
-        if not low_score and not has_explicit_gap:
-            continue
         raw_topics = answer.get("weak_topics") or []
         if isinstance(raw_topics, str):
             raw_topics = [raw_topics]
+        raw_weaknesses = answer.get("weaknesses") or []
+        if isinstance(raw_weaknesses, str):
+            raw_weaknesses = [raw_weaknesses]
+        has_eval_weakness = any(
+            str(item).strip().casefold() not in {
+                "", "needs improvement", "no significant weakness was identified in this answer",
+            }
+            for item in raw_weaknesses
+        )
+        if not low_score and not has_explicit_gap and not raw_topics and not has_eval_weakness:
+            continue
         answer_topic_start = len(topics)
         used_question_gap_topic = False
         for raw_topic in raw_topics:
@@ -279,6 +312,11 @@ def _evidence_supported_weak_topics(detailed_answers: list[dict], limit: int = 4
                 and question_supported
                 and len(topics) == answer_topic_start
                 and not used_question_gap_topic
+            ) or (
+                (low_score or has_eval_weakness)
+                and question_supported
+                and len(topics) == answer_topic_start
+                and not used_question_gap_topic
             ):
                 topics.append(topic)
                 if not answer_supported:
@@ -288,10 +326,105 @@ def _evidence_supported_weak_topics(detailed_answers: list[dict], limit: int = 4
         canonical_topic = str(answer.get("topic") or "").strip()
         if low_score and len(topics) == answer_topic_start and canonical_topic.casefold() not in generic:
             topics.append(canonical_topic)
+        # A low score can indicate a gap even when the candidate never said the
+        # concept aloud. In that case use one recognized skill from this exact
+        # question, rather than its broad category or unrelated answer wording.
+        if (low_score or has_eval_weakness) and len(topics) == answer_topic_start:
+            signals = analyze_answer(question_text, response, canonical_topic)
+            topics.extend(signals.get("question_concepts", [])[:1])
 
     unique_topics = list(dict.fromkeys(topic for topic in topics if topic))
     concise = sorted(unique_topics, key=lambda topic: (-topics.count(topic), unique_topics.index(topic)))[:limit]
     return categorize_weak_topics(concise)
+
+
+def _interview_skill_findings(detailed_answers: list[dict]) -> tuple[list[str], list[str]]:
+    """Summarize skills evidenced by answers and gaps reported for those answers."""
+    demonstrated: list[str] = []
+    to_work_on: list[str] = []
+    generic = {
+        "answer attempted", "needs improvement", "no significant weakness was identified in this answer",
+        "no answer provided", "evaluation unavailable", "technical", "hr", "behavioral", "general",
+    }
+    soft_skills = (
+        ("communication", "Communication"), ("teamwork", "Teamwork"),
+        ("leadership", "Leadership"), ("problem-solving", "Problem solving"),
+        ("problem solving", "Problem solving"), ("adaptability", "Adaptability"),
+        ("conflict resolution", "Conflict resolution"), ("collaboration", "Collaboration"),
+        ("ownership", "Ownership"), ("time management", "Time management"),
+    )
+    for answer in detailed_answers:
+        if not isinstance(answer, dict) or not answer.get("evaluation_available"):
+            continue
+        transcript = str(answer.get("transcript") or "")
+        question = str(answer.get("question") or "")
+        signals = analyze_answer(question, transcript, str(answer.get("topic") or ""))
+        try:
+            score = float(answer.get("score"))
+        except (TypeError, ValueError):
+            score = None
+        if score is not None and score >= 65:
+            demonstrated.extend(signals.get("concepts_mentioned", []))
+            evidence_text = " ".join([
+                transcript,
+                " ".join(str(item) for item in answer.get("strengths", []) if item),
+            ]).casefold()
+            for phrase, label in soft_skills:
+                if phrase in evidence_text:
+                    demonstrated.append(label)
+
+        weak_topics = answer.get("weak_topics") or []
+        if isinstance(weak_topics, str):
+            weak_topics = [weak_topics]
+        if score is not None and score < 65 and not weak_topics:
+            weak_topics = signals.get("knowledge_gap_topics") or signals.get("question_concepts", [])[:1]
+        to_work_on.extend(str(topic).strip() for topic in weak_topics if str(topic).strip())
+        weaknesses = answer.get("weaknesses") or []
+        if isinstance(weaknesses, str):
+            weaknesses = [weaknesses]
+        to_work_on.extend(
+            str(item).strip() for item in weaknesses
+            if str(item).strip() and str(item).strip().casefold() not in generic
+        )
+
+    def unique(values: list[str], limit: int = 8) -> list[str]:
+        result, seen = [], set()
+        for value in values:
+            cleaned = " ".join(str(value).split()).strip(" .;:")
+            key = cleaned.casefold()
+            if cleaned and key not in seen and key not in generic:
+                seen.add(key)
+                result.append(cleaned)
+            if len(result) >= limit:
+                break
+        return result
+
+    return unique(demonstrated), unique(to_work_on)
+
+
+def _report_feedback_facts(report_data: dict) -> tuple[list[str], list[str]]:
+    answers = report_data.get("detailed_answers") or []
+    strengths, weaknesses = [], []
+    excluded = {
+        "answer attempted", "needs improvement", "no answer provided",
+        "no significant weakness was identified in this answer",
+        "evaluation unavailable from the evaluation service.",
+    }
+    for answer in answers:
+        if not isinstance(answer, dict) or not answer.get("evaluation_available"):
+            continue
+        for field, target in (("strengths", strengths), ("weaknesses", weaknesses)):
+            values = answer.get(field) or []
+            if isinstance(values, str):
+                values = [values]
+            for value in values:
+                text = " ".join(str(value).split()).strip(" .;:")
+                text = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0].strip(" .;:")
+                if text and text.casefold() not in excluded and text.casefold() not in {
+                    item.casefold() for item in target
+                }:
+                    target.append(text)
+    return strengths[:4], weaknesses[:4]
 
 
 def _save_interview_profile_fields(
@@ -331,7 +464,7 @@ async def _ensure_session_jd_analysis(session: dict, resume_text: str) -> dict:
         analysis = await analyze_resume_vs_jd(
             resume_text,
             job_description,
-            llm_service=llm_service,
+            llm_service=interview_llm_service,
             prompt_manager=prompt_manager,
         )
 
@@ -725,9 +858,6 @@ BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
-logger = logging.getLogger(__name__)
-
-
 @app.middleware("http")
 async def log_http_requests(request: Request, call_next):
     """Minimal request log (replaces verbose uvicorn access lines)."""
@@ -1076,6 +1206,38 @@ def _is_provider_rate_limit(exc: Exception) -> bool:
     ))
 
 
+def _evaluation_for_answer(qa: dict, index: int, evaluations: list[dict]) -> dict:
+    """Associate an evaluation by persisted attempt/question before using order."""
+    attempt_id = qa.get("_attempt_id")
+    if attempt_id is not None:
+        for result in evaluations:
+            if result.get("attempt_id") is not None and str(result["attempt_id"]) == str(attempt_id):
+                return result
+    question = str(qa.get("question", "")).strip()
+    answer = str(qa.get("answer", qa.get("normalized_transcript", ""))).strip()
+    for result in evaluations:
+        if (
+            str(result.get("question", "")).strip() == question
+            and str(result.get("candidate_answer", "")).strip() == answer
+        ):
+            return result
+    if index < len(evaluations):
+        result = evaluations[index]
+        # Older/non-conversational evaluation results do not carry association
+        # fields; keep their established ordered mapping as a compatibility path.
+        if not result.get("question") and not result.get("candidate_answer"):
+            return result
+    return {
+        "score": None,
+        "evaluation_available": False,
+        "feedback": "Evaluation could not be associated with this answer.",
+        "strengths": [],
+        "weaknesses": [],
+        "ideal_answer": "",
+        "weak_topics": [],
+    }
+
+
 async def evaluate_content(
     role: str,
     level: str,
@@ -1114,6 +1276,9 @@ async def evaluate_content(
                 ) else [])
             )
             return {
+                "attempt_id": qa.get("_attempt_id"),
+                "question": question,
+                "candidate_answer": answer,
                 "score": None,
                 "evaluation_available": False,
                 "feedback": "Evaluation could not be generated by the evaluation service.",
@@ -1168,13 +1333,31 @@ async def evaluate_content(
         answer_normalized = str(answer or "").strip().lower()
         if answer_normalized in ["", "(skipped)", "(no response)"]:
             strengths = ["No answer provided."]
+            weaknesses = ["No response was provided for this question."]
         else:
-            strengths = parsed.get("strengths", ["Answer attempted."])
-            strengths = strengths if isinstance(strengths, list) else ["Answer attempted."]
-            strengths = [str(s).strip() for s in strengths if s][:3] or ["Answer attempted."]
-        weaknesses = parsed.get("weaknesses", ["Needs improvement."])
-        weaknesses = weaknesses if isinstance(weaknesses, list) else ["Needs improvement."]
-        weaknesses = [str(w).strip() for w in weaknesses if w][:3] or ["Needs improvement."]
+            strengths = parsed.get("strengths", [])
+            strengths = strengths if isinstance(strengths, list) else [strengths]
+            strengths = [str(s).strip() for s in strengths if str(s).strip()][:3]
+            if not strengths:
+                strengths = [
+                    "The response addressed the question with relevant detail."
+                    if heuristics.get("relevance", 0) >= 55
+                    else "The candidate made an attempt to address the question."
+                ]
+            weaknesses = parsed.get("weaknesses", [])
+            weaknesses = weaknesses if isinstance(weaknesses, list) else [weaknesses]
+            weaknesses = [str(w).strip() for w in weaknesses if str(w).strip()][:3]
+            if not weaknesses:
+                missing_points = answer_signals.get("missing_points", [])
+                if interview_type == "hr":
+                    missing_points = []
+                    if not answer_signals.get("evidence_provided"):
+                        missing_points.append("Add a specific example and the result you achieved.")
+                    if not answer_signals.get("key_points"):
+                        missing_points.append("Organize the response into a clear sequence of actions.")
+                weaknesses = [str(point).capitalize() + "." for point in missing_points[:2]]
+                if not weaknesses:
+                    weaknesses = ["No significant weakness was identified in this answer."]
         ideal_answer = parsed.get("ideal_answer", "Ideal answer unavailable.")
         ideal_answer = _concise_ideal_answer(ideal_answer) or "Ideal answer unavailable."
         weak_topics_raw = parsed.get("weak_topics", [])
@@ -1229,6 +1412,9 @@ async def evaluate_content(
             logger.warning("Interview answer evaluation unavailable: invalid CKFS metrics")
             return unavailable()
         return {
+            "attempt_id": qa.get("_attempt_id"),
+            "question": question,
+            "candidate_answer": answer,
             "score": score,
             "evaluation_available": True,
             "strengths": strengths,
@@ -1336,39 +1522,44 @@ async def evaluate_answers(role: str, questions_answers: list) -> dict:
 
 async def generate_performance_summary(report_data: dict) -> str:
     answers = report_data.get("detailed_answers", [])
-    attempted = len([
-        a for a in answers
-        if a.get("transcript") not in ["", "(skipped)", "(no response)"]
-    ])
-    try:
-        result = await summary_chain.invoke(
-            {
-                "role": report_data.get("candidate_profile", {}).get("role", "Candidate"),
-                "score": report_data.get("overall_score", 0),
-                "weak_topics": report_data.get("weak_topics", []),
-                "attempted": attempted,
-            }
-        )
-        summary = str(result.output or "").strip()
-        if summary:
-            return summary
-    except Exception:
-        logger.exception("Performance summary generation failed; building a factual report summary.")
+    strengths, weaknesses = _report_feedback_facts(report_data)
+    attempted = sum(
+        1 for answer in answers
+        if isinstance(answer, dict) and answer.get("transcript") not in ["", "(skipped)", "(no response)"]
+    )
+    evaluated = [
+        answer for answer in answers
+        if isinstance(answer, dict) and answer.get("evaluation_available")
+    ]
+    if not strengths:
+        best = max(evaluated, key=lambda answer: float(answer.get("score") or 0), default=None)
+        if best:
+            strengths = [f"your highest-scoring answer ({float(best.get('score') or 0):.0f}/100)"]
+    if not weaknesses:
+        gaps = report_data.get("weak_topics_display") or {}
+        if isinstance(gaps, dict):
+            weaknesses = [
+                str(topic) for values in gaps.values() if isinstance(values, list)
+                for topic in values if topic
+            ][:3]
+    if not weaknesses:
+        weakest = min(evaluated, key=lambda answer: float(answer.get("score") or 0), default=None)
+        if weakest and float(weakest.get("score") or 0) < 70:
+            weaknesses = [f"add more detail to the lowest-scoring answer ({float(weakest.get('score') or 0):.0f}/100)"]
 
-    # The fallback only restates persisted report facts; it does not invent feedback.
+    sentences = []
+    if strengths:
+        sentences.append("You demonstrated " + "; ".join(strengths[:3]) + ".")
+    else:
+        sentences.append("You completed the interview and each submitted answer was reviewed.")
+    if weaknesses:
+        sentences.append("Focus next on " + "; ".join(weaknesses[:3]) + ".")
+    else:
+        sentences.append("No major answer-specific weakness was identified in the completed evaluations.")
     score = report_data.get("overall_score")
-    weak_topics = report_data.get("weak_topics") or {}
-    topics = [
-        str(topic)
-        for values in weak_topics.values() if isinstance(values, list)
-        for topic in values if topic
-    ] if isinstance(weak_topics, dict) else [str(topic) for topic in weak_topics if topic]
-    summary = f"You completed {attempted} answer{'s' if attempted != 1 else ''}."
     if score is not None:
-        summary += f" Your overall interview score was {score}/100."
-    if topics:
-        summary += " The report identified these areas to develop: " + ", ".join(dict.fromkeys(topics[:6])) + "."
-    return summary
+        sentences.append(f"Your overall interview score was {score}/100 across {attempted} attempted answers.")
+    return " ".join(sentences[:3])
 
 
 async def generate_resume_skill_profile(resume_text: str, role: str, level: str) -> dict:
@@ -1379,7 +1570,7 @@ async def generate_resume_skill_profile(resume_text: str, role: str, level: str)
         experience_level=level,
     )
 
-    raw = await llm_service.invoke(prompt, use_cache=False, json_mode=True)
+    raw = await interview_llm_service.invoke(prompt, use_cache=False, json_mode=True)
     try:
         return extract_json(raw)
     except Exception:
@@ -1451,6 +1642,16 @@ def get_current_user(request: Request, db: Session):
 
 # Coding Round routes reuse this app's database and cookie-backed authentication.
 app.include_router(create_coding_router(get_current_user, get_db))
+
+# The isolated GD feature gets its own routes, persistent session table, and
+# transcription endpoint. Its voice requests reuse the existing Groq helper
+# without changing the Technical/HR transcription route or state.
+from services.group_discussion.routes import create_group_discussion_router
+
+app.include_router(create_group_discussion_router(
+    get_current_user, get_db, gd_llm_service,
+    lambda request_args: _groq_transcribe_audio(request_args),
+))
 
 def hash_password(password: str):
     # PBKDF2-SHA512 has no length limit; full password is always hashed
@@ -1850,7 +2051,9 @@ async def upload_resume(
 # ===========================================================================
 def _groq_transcribe_audio(request_args: dict):
     """Synchronous Groq SDK call, dispatched by the async endpoint's worker thread."""
-    return llm_service.client.audio.transcriptions.create(**request_args)
+    if stt_client is None:
+        raise RuntimeError("GROQ_API_KEY environment variable not set")
+    return stt_client.audio.transcriptions.create(**request_args)
 
 
 @app.post("/api/transcribe")
@@ -2396,7 +2599,12 @@ async def _generate_conversation_question(user, db: Session, session: dict, acti
     """Use the existing structured question chain, validate its output, then fall back safely."""
     generation_started = time.perf_counter()
     is_probe = action in {"FOLLOW_UP", "CLARIFICATION", "DEEPEN", "CHALLENGE", "BEHAVIORAL_PROBE"}
-    focus_keyword = choose_focus_keyword(answer, analysis or {}) if is_probe else ""
+    focus_keyword = choose_focus_keyword(
+        answer,
+        analysis or {},
+        question=session.get("current_question", ""),
+        adaptive_context=(session.get("current_topic", ""), session.get("current_skill", "")),
+    ) if is_probe else ""
     previous_questions = session.get("asked_questions", session.get("questions", []))
     category = session.get("interview_type", "technical")
     resume_text = resume_store.get(user.username, "")
@@ -2692,12 +2900,9 @@ async def api_interview_respond(request: Request, db: Session = Depends(get_db))
             answer_duration = 30
         current_question = session["current_question"]
         current_topic = session.get("current_topic", "technical")
-        transcript_context = " ".join((
-            current_question,
-            str(session.get("job_description", "")),
-            str(resume_store.get(user.username, "")),
-            " ".join(session.get("course_topics", []) or []),
-        ))
+        # Normalize speech against the active prompt only. Resume/JD/course text
+        # can contain unrelated proper nouns and must not legitimize ASR artifacts.
+        transcript_context = f"technical interview {current_question} {current_topic}"
         transcript_result = normalize_candidate_transcript(
             submitted_transcript if not is_skip else answer,
             session.get("interview_type", "technical"), transcript_context
@@ -2905,7 +3110,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         for i, qa in enumerate(questions_answers):
 
-            ca = content_answers[i] if i < len(content_answers) else {}
+            ca = _evaluation_for_answer(qa, i, content_answers)
             sa = speech_analyses[i] if i < len(speech_analyses) else {}
 
             # Ensure question text is from input
@@ -2970,18 +3175,27 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
             jd_analysis = await analyze_resume_vs_jd(
                 resume_text,
                 job_description,
-                llm_service=llm_service,
+                llm_service=interview_llm_service,
                 prompt_manager=prompt_manager,
             )
             session["jd_analysis"] = jd_analysis
 
+        skills_demonstrated, skills_to_work_on = _interview_skill_findings(detailed_answers)
+        jd_result = jd_analysis if isinstance(jd_analysis, dict) else {}
         report = {
             **_report_session_metadata(session),
             "candidate_profile": candidate_profile,
             "overall_score": overall,
             "verdict": verdict,
-            "performance_summary": "",  # filled below by LLM
-            "job_match_analysis": jd_analysis if job_description else None,
+            "performance_summary": "",
+            "job_match_analysis": {
+                "matched_skills": jd_result.get("matched_skills", []) if job_description else [],
+                "missing_skills": jd_result.get("missing_skills", []) if job_description else [],
+                "ats_score": jd_result.get("ats_score") if job_description else None,
+                "has_job_description": bool(job_description),
+                "skills_demonstrated": skills_demonstrated,
+                "skills_to_work_on": skills_to_work_on,
+            },
             "voice_analysis": {
                 "speaking_pace_wpm": round(avg_pace, 1),
                 "total_filler_words": total_fillers,
@@ -3007,28 +3221,24 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
             "detailed_answers": detailed_answers,
         }
 
-        # -- FEATURE 5: Performance Summary ----------------------------
-        # Use overall_feedback from content evaluation to avoid a second LLM call.
-        # Fall back to a separate LLM call only when the evaluator didn't provide one.
-        overall_feedback = content_result.get("overall_feedback", "")
-        if overall_feedback and overall_feedback.strip():
-            report["performance_summary"] = overall_feedback.strip()
-        else:
-            summary = await generate_performance_summary(report)
-            report["performance_summary"] = summary
-
-        # Expose weak topics at the top level for report.html
-        report["weak_topics"] = categorize_weak_topics(content_result.get("weak_topics", []))
+        # Use the already-persisted per-answer evaluations for report findings.
         report["weak_topics_display"] = _evidence_supported_weak_topics(detailed_answers)
+        displayed_topics = [
+            topic for values in report["weak_topics_display"].values() for topic in values
+        ]
+        report_topics = list(dict.fromkeys(
+            displayed_topics + [str(topic).strip() for topic in content_result.get("weak_topics", []) if str(topic).strip()]
+        ))
+        report["weak_topics"] = categorize_weak_topics(report_topics)
+        report["performance_summary"] = await generate_performance_summary(report)
 
         # ============================================================
         # RL: BANDIT-BASED COURSE RECOMMENDATION & REWARD FEEDBACK
         # ============================================================
         try:
-            weak_topics = content_result.get("weak_topics", [])
-            if isinstance(weak_topics, str):
-                weak_topics = [weak_topics]
-            weak_topics = [str(t).strip() for t in weak_topics if str(t).strip()]
+            weak_topics = list(dict.fromkeys(
+                displayed_topics + [str(t).strip() for t in content_result.get("weak_topics", []) if str(t).strip()]
+            ))
 
             # STEP 1: Compute state
             state_id = get_state_id(overall, len(weak_topics))
@@ -3076,25 +3286,26 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                 count=3,
                 answer_evaluations=content_result.get("answers"),
             )
-            try:
-                new_course_id = await create_course_from_resources(
-                    user,
-                    role,
-                    level,
-                    prioritized_topics,
-                    action,
-                    db,
-                    company=company_name,
-                    interview_score=overall,
-                )
-            except Exception as course_error:
-                logger.warning(
-                    f"Course creation failed for action={action}: {str(course_error)}"
-                )
-                new_course_id = None
+            if prioritized_topics:
+                try:
+                    new_course_id = await create_course_from_resources(
+                        user,
+                        role,
+                        level,
+                        prioritized_topics,
+                        action,
+                        db,
+                        company=company_name,
+                        interview_score=overall,
+                    )
+                except Exception as course_error:
+                    logger.warning(
+                        f"Course creation failed for action={action}: {str(course_error)}"
+                    )
+                    new_course_id = None
 
             # Fallback: retry with simpler params if first attempt failed
-            if not new_course_id:
+            if prioritized_topics and not new_course_id:
                 try:
                     fallback_used = True
                     new_course_id = await create_course_from_resources(
@@ -3271,7 +3482,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
 
         # Record interview per question into profile
         for i, qa in enumerate(questions_answers):
-            ca = content_answers[i] if i < len(content_answers) else {}
+            ca = _evaluation_for_answer(qa, i, content_answers)
             if not ca.get("evaluation_available", True) or ca.get("score") is None:
                 continue
             topic = role  # Treat role as the main topic/skill for now
@@ -3430,7 +3641,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                     InterviewAttempt.id == attempt_id,
                     InterviewAttempt.user_id == user.id,
                 ).first()
-            ca = content_answers[i] if i < len(content_answers) else {}
+            ca = _evaluation_for_answer(qa, i, content_answers)
             if saved_attempt:
                 try:
                     attempt_metadata = json.loads(saved_attempt.feedback or "{}")
@@ -3444,6 +3655,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                     "weaknesses": ca.get("weaknesses", []),
                     "ideal_answer": ca.get("ideal_answer", ""),
                     "weak_topics": ca.get("weak_topics", []),
+                    "voice_metrics": detailed_answers[i].get("voice_metrics", {}) if i < len(detailed_answers) else {},
                 }
                 saved_attempt.feedback = json.dumps(attempt_metadata, ensure_ascii=False)
             else:
@@ -3463,6 +3675,7 @@ async def api_interview_evaluate(request: Request, db: Session = Depends(get_db)
                             "weaknesses": ca.get("weaknesses", []),
                             "ideal_answer": ca.get("ideal_answer", ""),
                             "weak_topics": ca.get("weak_topics", []),
+                            "voice_metrics": detailed_answers[i].get("voice_metrics", {}) if i < len(detailed_answers) else {},
                         },
                     }, ensure_ascii=False),
                 ))

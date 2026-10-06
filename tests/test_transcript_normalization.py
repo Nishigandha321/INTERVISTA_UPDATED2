@@ -30,6 +30,10 @@ class TranscriptNormalizationTests(unittest.TestCase):
         self.assertEqual(result["suspicious_term"], "Netaji")
         self.assertEqual(result["normalized_transcript"], "I used Netaji.")
 
+    def test_context_comparison_is_case_insensitive(self):
+        result = self.normalize("I used Oracle.", context="How did you use oracle in the project?")
+        self.assertEqual(result["suspicious_term"], "")
+
     def test_hr_answer_is_not_technically_rewritten_or_flagged(self):
         answer = "I used C plus plus when I was nervous, but I learned to ask for help."
         result = self.normalize(answer, "Tell me about a time you faced a challenge.", "hr")

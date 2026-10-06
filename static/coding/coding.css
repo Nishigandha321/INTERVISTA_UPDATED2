@@ -438,3 +438,19 @@ body.coding-page.intervista-app {
   .coding-page.intervista-app .problem-pane,
   .coding-page.intervista-app .editor-pane { padding-right:0; padding-left:0; }
 }
+
+/* Match the shared editorial palette while keeping the editor the focal point. */
+.coding-page.intervista-app .coding-page-header h1 { color:#202a35; }
+.coding-page.intervista-app .coding-eyebrow { color:#e85d34; }
+.coding-page.intervista-app .problem-title-row h2,
+.coding-page.intervista-app .problem-section h3,
+.coding-page.intervista-app .question-example strong,
+.coding-page.intervista-app .question-example span { color:#202a35; }
+.coding-page.intervista-app .editor-toolbar label { color:#202a35; }
+.coding-page.intervista-app .editor-toolbar select:focus-visible { outline:3px solid rgba(232,93,52,.3); outline-offset:2px; border-color:#e85d34; }
+.coding-page.intervista-app .attempt-progress { border-color:#f0d7cd; background:#fff4ef; color:#bf4b2b; }
+.coding-page.intervista-app .editor-actions .primary-button { background:#202a35; box-shadow:0 7px 16px rgba(32,42,53,.12); }
+.coding-page.intervista-app .editor-actions .primary-button:hover { background:#37424e; }
+.coding-page.intervista-app .editor-actions .secondary-button { border-color:#dedfe1; background:#fff; color:#52606f; }
+.coding-page.intervista-app .test-result { transition:background-color .16s ease,border-color .16s ease; }
+.coding-page.intervista-app .problem-pane { padding-top:10px; }

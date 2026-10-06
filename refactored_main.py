@@ -29,13 +29,18 @@ class InterviewSystem:
         
         # Validate configuration
         try:
-            Settings.validate()
+            Settings.validate(provider="groq")
         except ValueError as e:
             logger.error(f"Configuration error: {str(e)}")
             raise
         
         # Initialize components
-        self.llm_service = LLMService(settings)
+        self.llm_service = LLMService(
+            settings,
+            provider="groq",
+            model_name=settings.interview_model_name,
+            purpose="Interview LLM",
+        )
         self.prompt_manager = PromptManager()
         self.retriever = get_retriever()
         self.agent = Agent(

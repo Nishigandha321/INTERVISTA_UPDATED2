@@ -20,8 +20,17 @@ class Settings:
     youtube_api_key: str = os.getenv("YOUTUBE_API_KEY", "")
 
     # LLM Configuration
+    openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
-    model_name: str = os.getenv("MODEL_NAME", "meta-llama/llama-4-scout-17b-16e-instruct")
+    gd_model_name: str = os.getenv(
+        "GD_MODEL_NAME",
+        os.getenv("MODEL_NAME", "nvidia/nemotron-3-ultra-550b-a55b:free"),
+    )
+    interview_model_name: str = os.getenv(
+        "INTERVIEW_MODEL_NAME", "openai/gpt-oss-120b"
+    )
+    # Backward-compatible default for application-level OpenRouter calls.
+    model_name: str = os.getenv("MODEL_NAME", gd_model_name)
     temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.0"))
     max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4000"))
     
@@ -73,10 +82,14 @@ class Settings:
     environment: str = os.getenv("ENVIRONMENT", "development")  # development, staging, production
     
     @classmethod
-    def validate(cls) -> bool:
-        """Validate critical configuration."""
-        
-        if not cls.groq_api_key:
+    def validate(cls, provider: Optional[str] = None) -> bool:
+        """Validate credentials for one provider, or both for legacy callers."""
+        selected = {provider.lower()} if provider else {"openrouter", "groq"}
+        if not selected.issubset({"openrouter", "groq"}):
+            raise ValueError(f"Unsupported provider: {provider}")
+        if "openrouter" in selected and not cls.openrouter_api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable not set")
+        if "groq" in selected and not cls.groq_api_key:
             raise ValueError("GROQ_API_KEY environment variable not set")
         
         return True
@@ -86,7 +99,10 @@ class Settings:
         """Return all settings as dictionary."""
         return {
             "groq_api_key": "***" if cls.groq_api_key else None,
+            "openrouter_api_key": "***" if cls.openrouter_api_key else None,
             "model_name": cls.model_name,
+            "gd_model_name": cls.gd_model_name,
+            "interview_model_name": cls.interview_model_name,
             "temperature": cls.temperature,
             "max_tokens": cls.max_tokens,
             "cache_enabled": cls.cache_enabled,
