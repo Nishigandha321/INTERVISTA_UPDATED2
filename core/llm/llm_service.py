@@ -163,13 +163,17 @@ class LLMService:
         else:
             request_args["max_tokens"] = generation_budget
             # Keep Nemotron's reasoning configuration local to OpenRouter.
-            extra_body = dict(request_args.get("extra_body") or {})
-            reasoning = dict(extra_body.get("reasoning") or {})
-            reasoning.setdefault(
-                "effort", request_args.get("reasoning_effort") or "high"
-            )
-            extra_body["reasoning"] = reasoning
-            request_args["extra_body"] = extra_body
+            #extra_body = dict(request_args.get("extra_body") or {})
+            #reasoning = dict(extra_body.get("reasoning") or {})
+            #reasoning.setdefault(
+            #    "effort", request_args.get("reasoning_effort") or "high"
+            #)
+            #extra_body["reasoning"] = reasoning
+            #request_args["extra_body"] = extra_body
+            reasoning_effort = request_args.pop("reasoning_effort", None)
+
+            if reasoning_effort is not None:
+                request_args["reasoning_effort"] = reasoning_effort
 
         logger.info(
             "%s request model=%s generation_budget=%s",

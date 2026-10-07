@@ -44,8 +44,8 @@ PERSONAS = [
 ]
 MAX_SESSION_SECONDS = 5 * 60
 USER_TURN_SECONDS = 36
-AI_RESPONSE_TIMEOUT_SECONDS = 7
-REPORT_TIMEOUT_SECONDS = 25
+AI_RESPONSE_TIMEOUT_SECONDS = 15
+REPORT_TIMEOUT_SECONDS = 30
 AI_SPEECH_MAX_SECONDS = 8
 MAIN_DISCUSSION_ROUNDS = 1
 DISCUSSION_PHASE_COUNT = 3  # Opening, one main round, and one final round.
@@ -74,6 +74,7 @@ def _initial_state(topic: str, total_participants: int) -> dict:
         "total_participants": total_participants,
         "participants": participants,
         "speaker_order": [p["id"] for p in participants],
+        "used_fallback_angles": [],
         "phase": "opening",
         "round": 1,
         "current_turn_index": 0,
@@ -101,8 +102,17 @@ def _loads(record: GroupDiscussionSession) -> dict:
             state["deadline_at"] = _stamp(_now() + timedelta(seconds=MAX_SESSION_SECONDS))
     state.setdefault("main_round_limit", MAIN_DISCUSSION_ROUNDS)
     state.setdefault("main_rounds_completed", 0)
-    if state.get("phase") not in {"completed", "expired"} and state.get("current_speaker") == "user" and not state.get("turn_deadline_at"):
-        state["turn_deadline_at"] = _stamp(_now() + timedelta(seconds=USER_TURN_SECONDS))
+    state.setdefault("used_fallback_angles", [])
+    if (
+        state.get("phase") not in {"completed", "expired"}
+        and state.get("current_speaker") == "user"
+        and not state.get("turn_deadline_at")
+    ):
+        state["turn_deadline_at"] = _stamp(
+            _now() + timedelta(
+                seconds=USER_TURN_SECONDS + AI_SPEECH_MAX_SECONDS
+            )
+        )
     return state
 
 
@@ -183,14 +193,22 @@ def _advance_after_contribution(state: dict):
             state["current_turn_index"] = next_index
             state["current_speaker"] = state["speaker_order"][next_index]
             if state["current_speaker"] == "user":
-                state["turn_deadline_at"] = _stamp(_now() + timedelta(seconds=USER_TURN_SECONDS))
+               state["turn_deadline_at"] = _stamp(
+                   _now() + timedelta(
+                       seconds=USER_TURN_SECONDS + AI_SPEECH_MAX_SECONDS
+                   )
+               )
         return
 
     if next_index < size:
         state["current_turn_index"] = next_index
         state["current_speaker"] = state["speaker_order"][next_index]
         if state["current_speaker"] == "user":
-            state["turn_deadline_at"] = _stamp(_now() + timedelta(seconds=USER_TURN_SECONDS))
+          state["turn_deadline_at"] = _stamp(
+              _now() + timedelta(
+                  seconds=USER_TURN_SECONDS + AI_SPEECH_MAX_SECONDS
+              )
+            )
         return
 
     state["current_turn_index"] = 0
@@ -206,13 +224,102 @@ def _advance_after_contribution(state: dict):
             state["phase"] = "conclusion"
             state["final_round_warning"] = True
             if state["speaker_order"][0] == "user":
-                state["turn_deadline_at"] = _stamp(_now() + timedelta(seconds=USER_TURN_SECONDS))
+               state["turn_deadline_at"] = _stamp(
+                   _now() + timedelta(
+                       seconds=USER_TURN_SECONDS + AI_SPEECH_MAX_SECONDS
+                   )
+               )
 
 
 def _short_ai_contribution(value: str) -> str:
     text = re.sub(r"(?:^|\n)\s*(?:[-*•]|\d+[.)])\s*", " ", str(value or ""))
     text = re.sub(r"\s+", " ", text).strip().strip('"“”')
     return text.replace("\n", " ").strip()
+
+FALLBACK_ANGLES = [
+    (
+        "impact",
+        "We should also consider how this issue affects people in their everyday lives, not just organisations or policy makers."
+    ),
+    (
+        "economic",
+        "Another angle is the economic impact, especially who gains from this change and who may face new costs."
+    ),
+    (
+        "practicality",
+        "It is also important to ask whether this idea is practical to implement consistently in real situations."
+    ),
+    (
+        "risk",
+        "We should look at the possible unintended consequences as well, because solving one problem can sometimes create another."
+    ),
+    (
+        "long_term",
+        "A long-term perspective is useful here because the effects may be very different after several years."
+    ),
+    (
+        "fairness",
+        "We should also think about fairness and whether different groups would experience the same change in the same way."
+    ),
+    (
+        "evidence",
+        "A strong way to judge this point would be to look at measurable results rather than relying only on assumptions."
+    ),
+    (
+        "counterargument",
+        "There is also a reasonable counterargument here, so considering the opposite view could make the discussion more balanced."
+    ),
+]
+
+
+def _fallback_ai_contribution(state: dict, persona: dict) -> str:
+    """Create a deterministic but non-repetitive GD contribution."""
+
+    used = set(state.get("used_fallback_angles", []))
+
+    selected = None
+    for angle, template in FALLBACK_ANGLES:
+        if angle not in used:
+            selected = (angle, template)
+            break
+
+    # If every angle has been used, recycle deterministically rather than
+    # repeating the previous contribution verbatim.
+    if selected is None:
+        index = len(used) % len(FALLBACK_ANGLES)
+        selected = FALLBACK_ANGLES[index]
+
+    angle, base = selected
+    used.add(angle)
+    state["used_fallback_angles"] = list(used)
+
+    persona_name = persona.get("name", "")
+
+    if persona_name == "Analytical":
+        return (
+            f"{base} "
+            f"That helps us evaluate the topic using more than one dimension."
+        )
+
+    if persona_name == "Contrarian":
+        return (
+            f"{base} "
+            f"I think this side deserves attention before we reach a firm conclusion."
+        )
+
+    if persona_name == "Collaborative":
+        return (
+            f"{base} "
+            f"Adding this perspective could make the group's discussion more complete."
+        )
+
+    if persona_name == "Assertive":
+        return (
+            f"{base} "
+            f"So I would include this factor before deciding on the final position."
+        )
+
+    return base
 
 
 def _append_contribution(state: dict, speaker: dict, content: str, kind="speech"):
@@ -267,16 +374,36 @@ def _analyze_gd_speech(text: str, duration_seconds: float) -> dict:
 
 def _extract_json(raw: str) -> dict:
     value = str(raw or "").strip()
-    if value.startswith("```"):
-        value = value.strip("`")
-        if value[:4].casefold() == "json":
-            value = value[4:].strip()
-    start, end = value.find("{"), value.rfind("}")
+
+    if not value:
+        raise ValueError("GD report response was empty")
+
+    # Remove markdown code fences if present
+    if "```" in value:
+        value = value.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+
+    # Find the JSON object even if the model added text before/after it
+    start = value.find("{")
+    end = value.rfind("}")
+
     if start < 0 or end <= start:
-        raise ValueError("GD report response did not contain JSON")
-    parsed = json.loads(value[start:end + 1])
+        raise ValueError(
+            f"GD report response did not contain JSON. Raw response: {value[:500]}"
+        )
+
+    json_text = value[start:end + 1]
+
+    try:
+        parsed = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"GD report JSON could not be parsed: {exc}. "
+            f"Raw response: {json_text[:500]}"
+        ) from exc
+
     if not isinstance(parsed, dict):
-        raise ValueError("GD report response was not an object")
+        raise ValueError("GD report response was not a JSON object")
+
     return parsed
 
 
@@ -316,7 +443,10 @@ async def _build_report(state: dict, llm_service) -> dict:
     user_count = len(user_entries)
     prompt = (
         "Evaluate only the candidate's actual group-discussion contributions using the shared conversation. "
-        "Be evidence-based and concise; do not infer audio confidence or pace from text. Return JSON only with numeric 0-100 "
+        "Be evidence-based and concise; do not infer audio confidence or pace from text. "
+        "Return ONLY one valid JSON object. Do not use Markdown. Do not use code fences. "
+        "Do not include any explanation before or after the JSON. "
+        "All score fields must be numbers from 0 to 100. "
         "fields communication, clarity, relevance, argument_strength, participation, response_to_others, plus arrays "
         "strengths (2-4), areas_to_improve (1-4), feedback_points (at most 3 actionable items), and topic_suggestions (2-4 "
         "specific useful points the candidate could have raised for this topic). Do not reward claims that are absent. "
@@ -328,8 +458,15 @@ async def _build_report(state: dict, llm_service) -> dict:
     try:
         raw = await asyncio.wait_for(
             llm_service.invoke(
-                prompt, temperature=0.1, max_tokens=850, use_cache=False,
-                json_mode=True, request_timeout_seconds=REPORT_TIMEOUT_SECONDS,
+                prompt,
+                temperature=0.1,
+                max_tokens=1400,
+                use_cache=False,
+                json_mode=True,
+                response_format={"type": "json_object"},
+                reasoning_effort="none",
+                request_timeout_seconds=REPORT_TIMEOUT_SECONDS,
+                min_generation_tokens=400,
             ),
             timeout=REPORT_TIMEOUT_SECONDS,
         )
@@ -544,27 +681,24 @@ def create_group_discussion_router(get_current_user, get_db, llm_service, transc
                     llm_service.invoke(
                         prompt,
                         temperature=0.45,
-                        max_tokens=500,
+                        max_tokens=300,
                         use_cache=False,
-                        reasoning_effort="medium",
+                        reasoning_effort="none",
                         request_timeout_seconds=AI_RESPONSE_TIMEOUT_SECONDS,
-                        min_generation_tokens=500,
+                        min_generation_tokens=150,
                     ),
                     timeout=AI_RESPONSE_TIMEOUT_SECONDS,
                 )
             except Exception as exc:
-                logger.warning("GD AI turn failed: session=%s type=%s", public_id, type(exc).__name__)
-                previous_point = re.sub(r"\s+", " ", previous).strip()
-                previous_point = " ".join(previous_point.split()[:8]).rstrip(".,;:")
-                if not previous_point:
-                    previous_point = state["topic"].rstrip("?.!")
-                fallbacks = {
-                    "Analytical": f"A useful point about {previous_point} is to weigh its benefits against its risks. That helps the group see the trade-offs clearly.",
-                    "Contrarian": f"I see that point about {previous_point}, though another side deserves a look. We should consider what could go wrong as well.",
-                    "Collaborative": f"Building on {previous_point}, we could also consider how it affects people day to day. That would make the idea more practical.",
-                    "Assertive": f"On {previous_point}, I would focus on a clear, practical next step. That gives us a way to move forward.",
-                }
-                response = fallbacks.get(persona["name"], f"That point about {previous_point} is worth considering. It gives the group something useful to discuss.")
+                logger.warning(
+                    "GD AI turn failed: session=%s type=%s",
+                    public_id,
+                    type(exc).__name__,
+                )
+            
+                # The LLM failed, so use a deterministic fallback that introduces
+                # a NEW discussion angle instead of paraphrasing the previous point.
+                response = _fallback_ai_contribution(state, persona)
             content = _short_ai_contribution(str(response or ""))
             if not content:
                 content = _short_ai_contribution(f"Building on {previous or state['topic']}, we should consider its practical effect.")

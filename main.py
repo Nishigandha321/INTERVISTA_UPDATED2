@@ -915,7 +915,7 @@ async def startup_rag_pipeline():
         ranker = SemanticRanker(embedder=embedder) if embedder else None
 
         resource_pipeline = ResourceRetrievalPipeline(
-            llm_service=llm_service,
+            llm_service=interview_llm_service,
             prompt_manager=prompt_manager,
             youtube_api_key=settings.youtube_api_key or None,
             ranker=ranker,
@@ -4887,6 +4887,41 @@ def interview_history_page(request: Request, db: Session = Depends(get_db)):
         .order_by(CodingAttempt.completed_at.desc())
         .all()
     )
+    gd_history = []
+    gd_sessions = (
+        db.query(GroupDiscussionSession)
+        .filter(
+            GroupDiscussionSession.user_id == user.id,
+            GroupDiscussionSession.status == "completed",
+        )
+        .order_by(GroupDiscussionSession.updated_at.desc())
+        .all()
+    )
+    for gd_session in gd_sessions:
+        try:
+            gd_state = json.loads(gd_session.state_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(gd_state, dict) or gd_state.get("phase") != "completed":
+            continue
+        report = gd_state.get("report")
+        if not isinstance(report, dict):
+            continue
+        discussion_history = gd_state.get("discussion_history")
+        candidate_turns = report.get("candidate_turns")
+        if candidate_turns is None and isinstance(discussion_history, list):
+            candidate_turns = sum(
+                1 for turn in discussion_history
+                if isinstance(turn, dict) and turn.get("speaker") == "user"
+            )
+        gd_history.append({
+            "public_id": gd_session.public_id,
+            "topic": report.get("topic") or gd_state.get("topic") or "Group Discussion",
+            "overall_score": report.get("overall_score"),
+            "candidate_turns": candidate_turns,
+            "completed_at": gd_state.get("ended_at") or gd_session.updated_at,
+            "report_url": f"/gd/report/{gd_session.public_id}",
+        })
     coding_attempts = [{
         "id": attempt.id,
         "completed_at": attempt.completed_at,
@@ -4899,6 +4934,7 @@ def interview_history_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "interview_history.html", {
         "request": request, "username": user.username, "learning_timeline": timeline,
         "coding_attempts": coding_attempts,
+        "gd_history": gd_history,
     })
 
 
