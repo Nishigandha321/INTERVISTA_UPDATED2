@@ -474,6 +474,9 @@
   <details class="answer-card">
     <summary>
       <span class="question-title">Q{{ loop.index }}. {{ ans.question }}</span>
+      {% if ans.score is defined and ans.score is not none %}
+      <span class="answer-individual-score">Score: {{ ans.score }}/100</span>
+      {% endif %}
     </summary>
 
     <div class="answer-content">

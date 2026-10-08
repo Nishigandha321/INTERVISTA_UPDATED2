@@ -221,6 +221,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 14px;
   font-weight: 600;
 }
 
@@ -230,7 +231,20 @@
 
 .question-title {
   color: var(--primary);
-  max-width: 80%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.answer-individual-score {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-light);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .answer-content {
