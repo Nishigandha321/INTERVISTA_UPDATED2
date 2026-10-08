@@ -4880,7 +4880,7 @@ def interview_history_page(request: Request, db: Session = Depends(get_db)):
     if not user:
         return RedirectResponse("/login")
     profile_row = get_or_create_user_profile(db, user)
-    interviews = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.asc()).all()
+    interviews = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.desc()).all()
     coding_attempt_rows = (
         db.query(CodingAttempt)
         .filter(CodingAttempt.user_id == user.id, CodingAttempt.status == "completed")
@@ -4928,11 +4928,54 @@ def interview_history_page(request: Request, db: Session = Depends(get_db)):
         "overall_score": attempt.overall_score,
         "attempted_questions": attempt.attempted_questions,
     } for attempt in coding_attempt_rows]
-    timeline, _ = _build_unified_learning_timeline(
-        interviews, [], profile_row, group_simulations=False
-    )
+    interview_records = []
+    oa_records = []
+    for interview in interviews:
+        try:
+            report_data = json.loads(interview.report_json) if interview.report_json else {}
+        except (TypeError, json.JSONDecodeError):
+            report_data = {}
+        (oa_records if report_data.get("round_type") == "online_assessment" else interview_records).append(interview)
+
+    def history_timeline(records):
+        timeline, _ = _build_unified_learning_timeline(
+            records, [], profile_row, group_simulations=False
+        )
+        entries = [
+            entry
+            for role_group in timeline
+            for entry in role_group["interviews"]
+        ]
+        date_by_id = {interview.id: interview.date or datetime.min for interview in records}
+        interview_by_id = {interview.id: interview for interview in records}
+        for entry in entries:
+            source = interview_by_id.get(entry["id"])
+            entry["role_display"] = (source.role or "Interview").strip() if source else "Interview"
+            try:
+                source_report = json.loads(source.report_json) if source and source.report_json else {}
+            except (TypeError, json.JSONDecodeError):
+                source_report = {}
+            entry["round_name"] = source_report.get("interview_type") or source_report.get("round_type", "Interview")
+        entries.sort(key=lambda entry: date_by_id.get(entry["id"], datetime.min), reverse=True)
+        return entries
+
+    interview_history = history_timeline(interview_records)
+    oa_history = history_timeline(oa_records)
+    def gd_sort_timestamp(entry):
+        completed_at = entry["completed_at"]
+        if isinstance(completed_at, datetime):
+            return completed_at.timestamp()
+        if isinstance(completed_at, str):
+            try:
+                return datetime.fromisoformat(completed_at.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                pass
+        return 0
+
+    gd_history.sort(key=gd_sort_timestamp, reverse=True)
     return templates.TemplateResponse(request, "interview_history.html", {
-        "request": request, "username": user.username, "learning_timeline": timeline,
+        "request": request, "username": user.username,
+        "interview_history": interview_history, "oa_history": oa_history,
         "coding_attempts": coding_attempts,
         "gd_history": gd_history,
     })

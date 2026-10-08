@@ -2,14 +2,14 @@
 <html lang="en"><head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/styles.css"><link rel="stylesheet" href="/static/profile-dashboard.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script><title>Dashboard · Intervista</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script><title>Dashboard · Intervista</title>
 </head><body class="intervista-app">
 {% set display_name = user_profile.first_name or username %}
 <aside class="intervista-sidebar">
   <a href="/" class="brand"><span class="brand-mark">✧</span><span>INTERVISTA</span><b>‹</b></a>
   <div class="sidebar-profile"><span class="initial">{{ username[:1]|upper }}</span><div><strong>{{ display_name }}</strong><small>Candidate</small></div></div>
   <nav class="primary-nav">
-    <a class="is-active" href="/profile"><i>⌂</i>Dashboard</a>
+    <a class="is-active" href="/"><i>⌂</i>Dashboard</a>
     <a href="/index"><i>◉</i>Mock Interviews</a>
     <a class="subnav" href="/index#full-simulation">Full Simulation</a>
     <a class="subnav" href="/index#individual-practice">Individual Practice</a>
@@ -38,8 +38,10 @@
   <section class="app-panel performance-panel"><div class="panel-title panel-title-row"><div><h2>Performance over time</h2><p>Track how your interview scores change with practice.</p></div>{% if timeline_by_role %}<label class="role-select">Role<select id="roleSelector"></select></label>{% endif %}</div>{% if timeline_by_role %}<div class="chart-wrap"><canvas id="performanceChart"></canvas></div>{% else %}<p class="empty-copy">Interview score trends will display here.</p>{% endif %}</section>
 </main>
 <script>
+document.addEventListener('DOMContentLoaded',()=>{
 document.querySelectorAll('.file-picker input').forEach(input=>input.addEventListener('change',()=>{const name=input.files[0]?.name||'No file chosen';input.parentElement.querySelector('b').textContent=name}));
 const timelineByRole={{ timeline_by_role|tojson|safe }}||{};
 function renderTimeline(role){const data=timelineByRole[role]||[],ctx=document.getElementById('performanceChart');if(!ctx)return;if(window._timelineChart)window._timelineChart.destroy();window._timelineChart=new Chart(ctx,{type:'line',data:{labels:data.map(d=>d.date),datasets:[{data:data.map(d=>d.score),borderColor:'#6357f5',borderWidth:3,pointRadius:3,pointHoverRadius:5,pointBackgroundColor:'#fff',pointBorderColor:'#6357f5',backgroundColor:'rgba(99,87,245,.08)',fill:true,tension:.35}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:100,grid:{color:'rgba(128,139,165,.18)'},ticks:{stepSize:10}},x:{grid:{color:'rgba(128,139,165,.14)'}}},plugins:{legend:{display:false}}}})}
 const selector=document.getElementById('roleSelector');if(selector){const roles=Object.keys(timelineByRole);roles.forEach(role=>{const option=document.createElement('option');option.value=role;option.textContent=role.replace(/\b\w/g,c=>c.toUpperCase());selector.appendChild(option)});if(roles.length){selector.value=roles[0];renderTimeline(roles[0]);selector.addEventListener('change',()=>renderTimeline(selector.value))}}
+});
 </script></body></html>

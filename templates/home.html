@@ -69,7 +69,7 @@
     </p>
 
     <div class="cta">
-      <a href="/signup" class="btn">Start your Journey →</a>
+      <a href="{% if username %}/profile{% else %}/signup{% endif %}" class="btn">Start your Journey →</a>
       <!-- <a href="#flow" class="btn outline-btn">How It Works</a> -->
     </div>
 
