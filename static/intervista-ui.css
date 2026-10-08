@@ -123,6 +123,8 @@ h1,h2,h3,h4 { letter-spacing:-.035em; }
 .interview-studio .voice-status { display:flex; align-items:center; gap:13px; margin-top:26px; padding:14px 0!important; border:0; border-top:1px solid #ececed; border-radius:0; background:transparent; color:#697584; font-size:.88rem; }
 .interview-studio .voice-ring { width:13px; height:13px; border:2px solid #d8dadd!important; border-radius:50%; }
 .interview-studio .voice-ring.active { border-color:#e85d34!important; background:rgba(232,93,52,.1)!important; box-shadow:0 0 0 5px rgba(232,93,52,.09); }
+.interview-studio .interview-text-answer { display:grid; gap:8px; margin-top:10px; }
+.interview-studio #interview-text-answer { min-height:145px; resize:vertical; line-height:1.55; }
 .interview-studio #interview-phase > div:last-child { margin-top:18px!important; padding-top:16px; border-top:1px solid #ececed; }
 .interview-studio #interview-phase .btn { min-height:42px; padding:9px 15px!important; border-radius:8px!important; background:#202a35!important; box-shadow:none!important; }
 .interview-studio #interview-phase .btn:hover { background:#37424e!important; }

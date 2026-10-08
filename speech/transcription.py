@@ -96,6 +96,7 @@ FILLER_WORDS = {
     "uh",
     "uhm",
     "hmm",
+    "i mean",
     "like",
     "so",
     "well",
@@ -176,10 +177,14 @@ def analyze_speech_delivery(answer: str, duration_seconds: float) -> dict:
     duration_minutes = max(duration_seconds / 60.0, 0.01)
     wpm = word_count / duration_minutes
     cleaned = [w.lower().strip(".,!?") for w in words]
-    filler_pattern = r"\b(?:" + "|".join(
+    filler_alternatives = [
         re.escape(filler).replace(r"\ ", r"\s+")
         for filler in sorted(FILLER_WORDS, key=len, reverse=True)
-    ) + r")\b"
+    ]
+    # Speech-to-text commonly stretches hesitation sounds. Match repeated
+    # letters as whole tokens while keeping lexical words such as "likely" out.
+    filler_alternatives.extend((r"uh+", r"um+", r"uhm+", r"hm{2,}"))
+    filler_pattern = r"\b(?:" + "|".join(filler_alternatives) + r")\b"
     fillers = [match.group(0).lower() for match in re.finditer(filler_pattern, answer, re.IGNORECASE)]
     filler_rate = len(fillers) / max(word_count, 1)
     sentences = re.split(r"[.!?]+", answer)

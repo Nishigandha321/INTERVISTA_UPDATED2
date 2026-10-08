@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="/static/styles.css">
-<link rel="stylesheet" href="/static/intervista-ui.css">
+<link rel="stylesheet" href="/static/intervista-ui.css?v=interview-text-answer-1">
 <title>AI Voice Interview</title>
 </head>
 
@@ -83,6 +83,11 @@
 <span id="voice-status-text">Waiting...</span>
 </div>
 
+<div class="interview-text-answer">
+<label for="interview-text-answer">Answer with text (optional)</label>
+<textarea id="interview-text-answer" rows="5" placeholder="Type your answer here..."></textarea>
+</div>
+
 <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
 <button id="btn-finish-speaking" class="btn" style="display:none;">Submit Answer</button>
 <button id="btn-skip" class="btn outline">Skip this question</button>
@@ -120,6 +125,7 @@
   const statusText = document.getElementById("voice-status-text");
   const ring = document.getElementById("voice-ring");
   const finishButton = document.getElementById("btn-finish-speaking");
+  const answerInput = document.getElementById("interview-text-answer");
   let currentQuestion = null;
   let mediaStream = null;
   let mediaRecorder = null;
@@ -147,6 +153,7 @@
     phase.value = next;
     if(message) statusText.textContent = message;
     ring.classList.toggle("active", next === "LISTENING");
+    answerInput.disabled = next !== "LISTENING";
     finishButton.style.display = next === "LISTENING" ? "inline-block" : "none";
     document.getElementById("btn-skip").disabled = next !== "LISTENING" && next !== "IDLE";
     document.getElementById("btn-end-early").disabled = next === "PROCESSING" || next === "FINISHED";
@@ -216,7 +223,7 @@
     });
   }
   async function presentQuestion(data){
-    currentQuestion=data;document.getElementById("current-question").textContent=data.question;
+    currentQuestion=data;answerInput.value="";document.getElementById("current-question").textContent=data.question;
     if(data.is_final){setPhase("FINISHED","Interview complete.");await speak(data.question);await evaluateAll();return;}
     setPhase("SPEAKING","AI is speaking...");await speak(data.question);
     if(phase.value !== "SPEAKING")return;
@@ -244,6 +251,12 @@
   }
   async function submitAnswer(endAfter=false){
     if(phase.value !== "LISTENING" || answerInFlight)return;
+    const typedAnswer=answerInput.value.trim();
+    if(typedAnswer){
+      if(!answerStartedAt)answerStartedAt=Date.now();
+      await sendAnswer(typedAnswer,false,false,endAfter);
+      return;
+    }
     if(!recordedAudio && (!recordingStarted || !mediaRecorder || mediaRecorder.state !== "recording")){
       statusText.textContent="Microphone is starting. Please wait, then press Submit Answer.";
       if(!recordingStarted)startListening();
@@ -286,7 +299,7 @@
   });
   document.getElementById("btn-end-early").addEventListener("click",async()=>{
     if(answerInFlight || evaluationInFlight)return;
-    if(phase.value === "LISTENING" && (recordingStarted || recordedAudio || pendingTranscript)){
+    if(phase.value === "LISTENING" && (recordingStarted || recordedAudio || pendingTranscript || answerInput.value.trim())){
       await submitAnswer(true);return;
     }
     if(!(currentQuestion && (currentQuestion.turn_count || 0) > 0)){
