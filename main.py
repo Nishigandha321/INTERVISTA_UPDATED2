@@ -1777,28 +1777,33 @@ def signup(request: Request, username: str = Form(...), password: str = Form(...
     db.commit()
     return RedirectResponse("/login", status_code=303)
 
+def _safe_resume_destination(value: str | None) -> str:
+    allowed = {"/", "/profile", "/full-simulation", "/full-simulation/start", "/individual-practice"}
+    if value in allowed or value in {"/individual-practice?launch=online_assessment", "/individual-practice?launch=technical", "/individual-practice?launch=hr"}:
+        return value
+    return "/profile"
+
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"request": request})
+def login_page(request: Request, next: str | None = None):
+    return templates.TemplateResponse(request, "login.html", {"request": request, "next_url": _safe_resume_destination(next)})
 
 @app.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/profile"), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == username).first()
 
     if not user:
-        return templates.TemplateResponse(request, "login.html", {"request": request, "message": "Invalid credentials"}
+        return templates.TemplateResponse(request, "login.html", {"request": request, "message": "Invalid credentials", "next_url": _safe_resume_destination(next)}
         )
 
     if not verify_password(password, user.password):
-        return templates.TemplateResponse(request, "login.html", {"request": request, "message": "Invalid credentials"}
+        return templates.TemplateResponse(request, "login.html", {"request": request, "message": "Invalid credentials", "next_url": _safe_resume_destination(next)}
         )
 
     # Ensure a profile row exists for this user.
     get_or_create_user_profile(db, user)
 
-    # The preparation profile is the first authenticated screen.  It keeps the
-    # interview context in one place before the user starts a practice session.
-    resp = RedirectResponse("/profile", status_code=303)
+    destination = _safe_resume_destination(next)
+    resp = RedirectResponse(destination, status_code=303)
     resp.set_cookie(key="user", value=username, httponly=True)
     return resp
 
@@ -1831,8 +1836,7 @@ def update_resume(request: Request, file: UploadFile, db: Session = Depends(get_
 
     return RedirectResponse("/profile", status_code=303)
 
-@app.get("/index", response_class=HTMLResponse)
-def index(request: Request, db: Session = Depends(get_db)):
+def _practice_context(request: Request, db: Session):
 
     user = get_current_user(request, db)
     if not user:
@@ -1845,15 +1849,50 @@ def index(request: Request, db: Session = Depends(get_db)):
     company_name = profile.company_name if profile else ""
     job_description = profile.job_description if profile else ""
 
-    return templates.TemplateResponse(request, "index.html", {
+    return {
             "request": request,
             "username": user.username,
             "saved_role": role,
             "saved_level": level,
             "saved_company_name": company_name or "",
             "saved_job_description": job_description or "",
-        },
-    )
+        }
+
+@app.get("/index", response_class=HTMLResponse)
+def index(request: Request, db: Session = Depends(get_db)):
+    return RedirectResponse("/individual-practice", status_code=303)
+
+@app.get("/full-simulation", response_class=HTMLResponse)
+def full_simulation_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login?next=/full-simulation", status_code=303)
+    context = _practice_context(request, db)
+    return templates.TemplateResponse(request, "full_simulation.html", context)
+
+@app.get("/individual-practice", response_class=HTMLResponse)
+def individual_practice_page(request: Request, launch: str | None = None, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        next_url = "/individual-practice" + (f"?launch={launch}" if launch in {"online_assessment", "technical", "hr"} else "")
+        return RedirectResponse(f"/login?next={next_url}", status_code=303)
+    if launch in {"online_assessment", "technical", "hr"}:
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if not profile or not profile.role_applied_for or not profile.current_designation:
+            return RedirectResponse(f"/profile?next=/individual-practice%3Flaunch%3D{launch}", status_code=303)
+        return _build_interview_context(request, user, db=db, interview_mode="individual_practice", selected_round=launch)
+    context = _practice_context(request, db)
+    return templates.TemplateResponse(request, "individual_practice.html", context)
+
+@app.get("/full-simulation/start", response_class=HTMLResponse)
+def launch_full_simulation(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login?next=/full-simulation%2Fstart", status_code=303)
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+    if not profile or not profile.role_applied_for or not profile.current_designation:
+        return RedirectResponse("/profile?next=/full-simulation%2Fstart", status_code=303)
+    return _build_interview_context(request, user, db=db, interview_mode="placement_simulation", selected_round="technical")
 
 @app.get("/progress", response_class=HTMLResponse)
 @app.get("/progress/")
@@ -1869,6 +1908,7 @@ async def update_profile(
     level: str = Form(""),
     company_name: str = Form(""),
     job_description: str = Form(""),
+    next: str = Form("/profile"),
     resume: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
@@ -1893,7 +1933,7 @@ async def update_profile(
         db.add(profile)
         db.commit()
 
-    return RedirectResponse("/profile", status_code=303)
+    return RedirectResponse(_safe_resume_destination(next), status_code=303)
 
 # ===========================================================================
 # RESUME UPLOAD
@@ -4770,7 +4810,7 @@ def _build_unified_learning_timeline(
     return timeline, standalone_courses
 
 @app.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request, db: Session = Depends(get_db)):
+def profile_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):
 
     user = get_current_user(request, db)
     if not user:
@@ -4870,6 +4910,7 @@ def profile_page(request: Request, db: Session = Depends(get_db)):
             "improvement_message": improvement_message,
             "learning_timeline": learning_timeline,
             "standalone_courses": standalone_courses,
+            "resume_destination": _safe_resume_destination(next),
         },
     )
 

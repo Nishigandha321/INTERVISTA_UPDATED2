@@ -16,6 +16,7 @@
     <h1 id="auth-title">Sign in to INTERVISTA</h1>
     <p class="auth-intro">Your next opportunity is closer than you think.</p>
     <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next_url or '/profile' }}">
       <label for="username">Username</label>
       <input id="username" type="text" name="username" placeholder="Your username" autocomplete="username" required>
       <div class="password-label"><label for="password">Password</label><a class="forgot-link" href="mailto:support@intervista.ai?subject=Password%20reset%20request">Forgot password?</a></div>

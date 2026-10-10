@@ -24,6 +24,7 @@
   <section class="app-panel profile-panel" id="preparation-profile">
     <div class="panel-title"><h2>Preparation profile</h2><p>Keep your target role, company and resume up to date so every practice session stays personalised.</p></div>
     <form action="/profile" method="post" enctype="multipart/form-data" class="prep-form">
+      <input type="hidden" name="next" value="{{ resume_destination or '/profile' }}">
       <div class="profile-inputs">
         <label>Target role<input name="role" value="{{ user_profile.role_applied_for or '' }}" placeholder="e.g. AI engineer" required></label>
         <label>Experience level<select name="level" required><option value="">Select level</option>{% for value, label in [('intern','Intern'),('junior','Junior'),('mid','Mid-Level'),('senior','Senior')] %}<option value="{{ value }}" {% if user_profile.current_designation == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
