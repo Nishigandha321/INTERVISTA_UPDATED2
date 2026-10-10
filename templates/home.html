@@ -18,14 +18,14 @@
       </div>
       <a href="#workflow">Workflow</a><a href="mailto:support@intervista.ai">Contact</a>
     </div>
-    {% if username %}<div class="account-menu"><button class="user-avatar" type="button" aria-label="Open account menu" aria-expanded="false">{{ username[:1]|upper }}</button><div class="account-dropdown"><span>{{ username }}</span><a href="/profile">View Dashboard</a><a href="/logout">Logout</a></div></div>{% else %}<span class="nav-spacer" aria-hidden="true"></span>{% endif %}
+    {% if username %}<div class="account-menu"><button class="user-avatar" type="button" aria-label="Open account menu" aria-expanded="false">{{ username[:1]|upper }}</button><div class="account-dropdown"><span>{{ username }}</span><a href="/">View Dashboard</a><a href="/logout">Logout</a></div></div>{% else %}<span class="nav-spacer" aria-hidden="true"></span>{% endif %}
   </nav>
   <main>
     <header class="hero"><div class="hero-glow"></div><div class="hero-content">
       <div class="ai-badge"><span></span> AI-POWERED PREPARATION</div>
       <h1><span class="hero-static">Prepare Better.</span><span class="rotating-line" aria-live="polite"><span id="rotatingText">Perform Technical Interviews.</span></span><span class="hero-static">All-in-one platform.</span></h1>
       <p class="hero-copy">Build confidence for every stage of your next opportunity with AI-powered interview practice, coding rounds, assessments and actionable feedback.</p>
-      <div class="hero-actions"><a class="button-primary" href="{% if username %}/profile{% else %}/signup{% endif %}">Start Your Journey <span>→</span></a><a class="button-secondary" href="#features">Explore Features</a></div>
+      <div class="hero-actions"><a class="button-primary" href="{% if username %}/{% else %}/signup{% endif %}">Start Your Journey <span>→</span></a><a class="button-secondary" href="#features">Explore Features</a></div>
       <div class="hero-note">✧ &nbsp; Your next opportunity starts with preparation</div>
     </div></header>
     <section class="features-section" id="features"><div class="section-heading"><p class="eyebrow">BUILT FOR YOUR NEXT MOVE</p><h2>Preparation that <span>moves you forward.</span></h2><p>Tools to help you practise with purpose and understand where to improve.</p></div>

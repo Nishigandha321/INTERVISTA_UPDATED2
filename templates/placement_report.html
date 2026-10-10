@@ -402,13 +402,12 @@
     to { opacity: 1; transform: translateY(0); }
   }
 </style>
-  <link rel="stylesheet" href="/static/sidebar.css">
+
+<link rel="stylesheet" href="/static/sidebar.css">
 </head>
 
-<body class="intervista-app has-sidebar">
-{% include "_sidebar.html" %}
-
-
+<body class="iv-legacy-page">
+{% set active_page = 'mock' %}{% include '_sidebar.html' %}
 
 <div class="report-container">
   
@@ -653,7 +652,14 @@
 
 </div>
 
-
-<script src="/static/sidebar.js" defer></script>
+<script>
+const avatar   = document.getElementById("userAvatar");
+const dropdown = document.getElementById("userDropdown");
+avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
+window.addEventListener("click", (e) => {
+  if (!avatar.contains(e.target) && !dropdown.contains(e.target))
+    dropdown.classList.remove("show");
+});
+</script>
 </body>
 </html>

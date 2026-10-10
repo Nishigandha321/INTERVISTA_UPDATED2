@@ -6,16 +6,18 @@
 <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/intervista-ui.css?v=interview-text-answer-1">
 <title>AI Voice Interview</title>
-  <link rel="stylesheet" href="/static/sidebar.css">
+
+<link rel="stylesheet" href="/static/sidebar.css">
 </head>
 
-<body class="intervista-app interview-studio has-sidebar">
-{% include "_sidebar.html" %}
+<body class="interview-studio iv-legacy-page">
 
+     {% set active_page = 'mock' %}{% include '_sidebar.html' %}
 
 <header class="page-header">
 <h1>Technical Interview</h1>
 </header>
+
 
 <main>
 
@@ -30,16 +32,20 @@
 
 </section>
 
+
+
 <section id="interview-phase" class="card" style="display:none;">
 
 <div id="interviewer-bubble" class="interviewer-bubble">
 <p id="current-question"></p>
 </div>
 
+
 <div id="coding-timer" style="display:none;margin-top:10px;">
 <span>Thinking time: </span>
 <b id="timer-value">120</b> seconds
 </div>
+
 
 <div id="voice-status" class="voice-status">
 <div class="voice-ring" id="voice-ring"></div>
@@ -60,6 +66,8 @@
 
 </section>
 
+
+
 <section id="evaluating-phase" class="card" style="display:none;">
 
 <h2>Interview Complete</h2>
@@ -72,6 +80,8 @@
 </section>
 
 </main>
+
+
 
 <script>
 (function(){
@@ -278,6 +288,5 @@
 })();
 </script>
 
-<script src="/static/sidebar.js" defer></script>
 </body>
 </html>

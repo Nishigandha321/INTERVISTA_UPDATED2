@@ -20,13 +20,12 @@
     color: #166534;
   }
 </style>
-  <link rel="stylesheet" href="/static/sidebar.css">
+
+<link rel="stylesheet" href="/static/sidebar.css">
 </head>
-<body class="intervista-app has-sidebar">
-{% include "_sidebar.html" %}
+<body class="iv-legacy-page">
 
-
-
+{% if current_round == 'hr' %}{% set active_page = 'mock' %}{% else %}{% set active_page = 'gd' %}{% endif %}{% include '_sidebar.html' %}
 
 <header class="page-header">
   <h1>Placement Simulation</h1>
@@ -73,6 +72,5 @@ if (avatar && dropdown) {
 }
 </script>
 
-<script src="/static/sidebar.js" defer></script>
 </body>
 </html>

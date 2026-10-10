@@ -50,13 +50,12 @@
     line-height: 1.5;
   }
 </style>
-  <link rel="stylesheet" href="/static/sidebar.css">
+
+<link rel="stylesheet" href="/static/sidebar.css">
 </head>
-<body class="intervista-app has-sidebar">
-{% include "_sidebar.html" %}
+<body class="iv-legacy-page">
 
-
-
+{% set active_page = 'mock' %}{% include '_sidebar.html' %}
 
 <header class="page-header">
   <h1>Online Assessment Report</h1>
@@ -126,6 +125,5 @@ if (avatar && dropdown) {
 }
 </script>
 
-<script src="/static/sidebar.js" defer></script>
 </body>
 </html>
