@@ -13,3 +13,20 @@ body.iv-legacy-page{display:block;min-height:100vh;margin:0;padding:0;overflow-x
 @media(max-width:760px){.iv-sidebar{position:relative;inset:auto;width:100%;min-height:0;max-height:none;padding:14px 16px 12px;border-right:0;border-bottom:1px solid var(--iv-sidebar-line)}.iv-brand{gap:10px;font-size:17px}.iv-brand-mark{width:36px;height:36px;font-size:22px}.iv-user-card{display:none}.iv-primary-nav{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:13px}.iv-primary-nav a,.iv-account-nav a{min-width:0;min-height:46px;justify-content:center;gap:6px;padding:5px 4px;border-radius:9px;text-align:center;font-size:11px;line-height:1.2}.iv-primary-nav a span,.iv-account-nav a span{max-width:100%;overflow-wrap:anywhere}.iv-primary-nav i,.iv-account-nav i{width:auto;font-size:15px}.iv-account-nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:8px;padding-top:9px}.intervista-app:not(.iv-legacy-page) .intervista-main,.intervista-app:is(:has(#skill-snapshot),.profile-page) .intervista-main{width:100%;margin:0}.iv-legacy-page>main,.iv-legacy-page>.report-container,.iv-legacy-page>.page-header{width:100%;margin:0;padding:26px 16px 38px}}
 @media(max-width:390px){.iv-primary-nav{grid-template-columns:repeat(3,minmax(0,1fr))}.iv-primary-nav a,.iv-account-nav a{font-size:10px}}
 @media(prefers-reduced-motion:reduce){.iv-sidebar *{scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
+/* Persistent, accessible compact sidebar toggle. */
+.iv-sidebar{transition:width .22s ease,padding .22s ease}
+.iv-sidebar-toggle{position:absolute;top:31px;right:17px;display:grid;width:30px;height:30px;place-items:center;border:1px solid var(--iv-sidebar-line);border-radius:9px;background:rgba(255,255,255,.04);color:#e8def9;font-size:21px;cursor:pointer}
+.iv-sidebar-toggle:focus-visible{outline:2px solid #c2a4ff;outline-offset:3px}
+body.iv-sidebar-collapsed{--iv-sidebar-width:88px}
+body.iv-sidebar-collapsed .iv-sidebar{align-items:center;padding-right:12px;padding-left:12px}
+body.iv-sidebar-collapsed .iv-sidebar-toggle{position:static;align-self:flex-end;margin:16px 0 8px}
+body.iv-sidebar-collapsed .iv-brand{margin:0;gap:0}
+body.iv-sidebar-collapsed .iv-brand>span:last-child,body.iv-sidebar-collapsed .iv-user-copy{display:none}
+body.iv-sidebar-collapsed .iv-user-card{margin:10px 0 22px;padding:8px}
+body.iv-sidebar-collapsed .iv-primary-nav,body.iv-sidebar-collapsed .iv-account-nav{width:100%}
+body.iv-sidebar-collapsed .iv-primary-nav a,body.iv-sidebar-collapsed .iv-account-nav a{justify-content:center;gap:0;padding:0}
+body.iv-sidebar-collapsed .iv-primary-nav a span,body.iv-sidebar-collapsed .iv-account-nav a span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+body.iv-sidebar-collapsed .iv-account-nav::before{width:48px}
+body.iv-sidebar-collapsed .iv-account-nav a{padding-left:0}
+@media(max-width:760px){body.iv-sidebar-collapsed{--iv-sidebar-width:100%}body.iv-sidebar-collapsed .iv-sidebar{align-items:stretch;padding:14px 16px 12px}body.iv-sidebar-collapsed .iv-sidebar-toggle{position:absolute;top:15px;right:16px;margin:0}body.iv-sidebar-collapsed .iv-brand>span:last-child{display:inline}body.iv-sidebar-collapsed .iv-user-card{display:none}body.iv-sidebar-collapsed .iv-primary-nav a span,body.iv-sidebar-collapsed .iv-account-nav a span{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:normal}body.iv-sidebar-collapsed .iv-primary-nav a,body.iv-sidebar-collapsed .iv-account-nav a{justify-content:center;gap:6px;padding:5px 4px}body.iv-sidebar-collapsed .iv-account-nav a{padding-left:4px}}

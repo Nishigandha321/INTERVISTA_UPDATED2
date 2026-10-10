@@ -9,8 +9,7 @@
 {% set display_name = user_profile.first_name or username %}
 
 <main class="intervista-main dashboard-main">
-  <header class="app-page-header"><div><p class="eyebrow">INTERVISTA / DASHBOARD</p><h1>Good to see you, {{ display_name }}.</h1><p class="lede">Your preparation hub — profile, skills and interview progress in one place.</p></div><a href="/individual-practice" class="primary-button">Choose practice →</a></header>
-  <section class="practice-section dashboard-practice"><div class="section-intro"><h2>Start individual practice</h2><p>Go straight to the round you want to practise.</p></div><div class="mode-grid"><article class="mode-card"><span class="mode-icon">▣</span><h2>Online Assessment</h2><p>Practise timed role relevant questions.</p><a class="primary-button" href="/individual-practice?launch=online_assessment">Start Online Assessment →</a></article><article class="mode-card"><span class="mode-icon">◉</span><h2>Technical Interview</h2><p>Practise an adaptive technical interview.</p><a class="primary-button" href="/individual-practice?launch=technical">Start Technical Interview →</a></article><article class="mode-card"><span class="mode-icon">◎</span><h2>HR Interview</h2><p>Practise behavioral interview questions.</p><a class="primary-button" href="/individual-practice?launch=hr">Start HR Interview →</a></article></div></section>
+  <header class="app-page-header"><div><p class="eyebrow">INTERVISTA / PROFILE</p><h1>Preparation Profile</h1><p class="lede">Keep your target role and preparation materials up to date.</p></div></header>
   <section class="app-panel profile-panel" id="preparation-profile">
     <div class="panel-title"><h2>Preparation profile</h2><p>Keep your target role, company and resume up to date so every practice session stays personalised.</p></div>
     <form action="/profile" method="post" enctype="multipart/form-data" class="prep-form">
@@ -24,16 +23,7 @@
       <div class="resume-upload"><span class="file-badge">PDF</span><h3>Resume</h3><p>Upload a PDF or DOCX to personalise your interview questions.</p><label class="file-picker"><span>Choose File</span><input name="resume" type="file" accept=".pdf,.docx"><b>No file chosen</b></label>{% if user_profile.resume_file_path %}<a class="download-resume" href="/{{ user_profile.resume_file_path }}" download>Download current resume</a>{% endif %}</div>
       <div class="save-row"><button type="submit" class="primary-button">Save changes</button></div>
     </form>
-  </section>
-  <section class="app-panel snapshot-panel" id="skill-snapshot"><div class="panel-title"><h2>Skill snapshot</h2><p>Your current readiness at a glance.</p></div>{% if dashboard.has_data and dashboard.snapshot %}<div class="snapshot-grid">{% for item in dashboard.snapshot %}<article><strong>{{ item.value }}{% if item.kind != 'count' and item.kind != 'primary' %}%{% endif %}</strong><span>{{ item.label }}</span></article>{% endfor %}</div>{% else %}<p class="empty-copy">Complete a mock interview to unlock your readiness overview.</p>{% endif %}</section>
-  <section class="app-panel performance-panel"><div class="panel-title panel-title-row"><div><h2>Performance over time</h2><p>Track how your interview scores change with practice.</p></div>{% if timeline_by_role %}<label class="role-select">Role<select id="roleSelector"></select></label>{% endif %}</div>{% if timeline_by_role %}<div class="chart-wrap"><canvas id="performanceChart"></canvas></div>{% else %}<p class="empty-copy">Interview score trends will display here.</p>{% endif %}</section>
-</main>
-<script>
-document.addEventListener('DOMContentLoaded',()=>{
-document.querySelectorAll('.file-picker input').forEach(input=>input.addEventListener('change',()=>{const name=input.files[0]?.name||'No file chosen';input.parentElement.querySelector('b').textContent=name}));
-const timelineByRole={{ timeline_by_role|tojson|safe }}||{};
-function renderTimeline(role){const data=timelineByRole[role]||[],ctx=document.getElementById('performanceChart');if(!ctx)return;if(window._timelineChart)window._timelineChart.destroy();window._timelineChart=new Chart(ctx,{type:'line',data:{labels:data.map(d=>d.date),datasets:[{data:data.map(d=>d.score),borderColor:'#6357f5',borderWidth:3,pointRadius:3,pointHoverRadius:5,pointBackgroundColor:'#fff',pointBorderColor:'#6357f5',backgroundColor:'rgba(99,87,245,.08)',fill:true,tension:.35}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:100,grid:{color:'rgba(128,139,165,.18)'},ticks:{stepSize:10}},x:{grid:{color:'rgba(128,139,165,.14)'}}},plugins:{legend:{display:false}}}})}
-const selector=document.getElementById('roleSelector');if(selector){const roles=Object.keys(timelineByRole);roles.forEach(role=>{const option=document.createElement('option');option.value=role;option.textContent=role.replace(/\b\w/g,c=>c.toUpperCase());selector.appendChild(option)});if(roles.length){selector.value=roles[0];renderTimeline(roles[0]);selector.addEventListener('change',()=>renderTimeline(selector.value))}}
-});
-</script><script src="/static/sidebar.js" defer></script>
+  </section></main>
+<script>document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('.file-picker input').forEach(input=>input.addEventListener('change',()=>{input.parentElement.querySelector('b').textContent=input.files[0]?.name||'No file chosen'})));</script>
+<script src="/static/sidebar.js" defer></script>
 </body></html>

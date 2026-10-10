@@ -1755,40 +1755,45 @@ def update_skill_profile(db: Session, user_id: int, skill_data: dict):
 # ===========================================================================
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
-    """Render the public landing page with the existing cookie-backed auth state."""
+    """Render the public landing page or send an authenticated user to Dashboard."""
     user = get_current_user(request, db)
-    return templates.TemplateResponse(
-        request,
-        "home.html",
-        {"request": request, "username": user.username if user else None},
-    )
+    if user:
+        return RedirectResponse("/dashboard", status_code=303)
+    return templates.TemplateResponse(request, "home.html", {"request": request, "username": None})
 
 @app.get("/signup", response_class=HTMLResponse)
-def signup_page(request: Request):
-    return templates.TemplateResponse(request, "signup.html", {"request": request})
+def signup_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if user:
+        return RedirectResponse("/dashboard", status_code=303)
+    return templates.TemplateResponse(request, "signup.html", {"request": request, "next_url": _safe_resume_destination(next)})
 
 @app.post("/signup")
-def signup(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+def signup(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/dashboard"), db: Session = Depends(get_db)):
+    from urllib.parse import quote
+    destination = _safe_resume_destination(next)
     if db.query(User).filter(User.username == username).first():
-        return templates.TemplateResponse(request, "signup.html", {"request": request, "message": "User already exists"})
+        return templates.TemplateResponse(request, "signup.html", {"request": request, "message": "User already exists", "next_url": destination})
     hashed_password = hash_password(password)
     user = User(username=username, password=hashed_password)
     db.add(user)
     db.commit()
-    return RedirectResponse("/login", status_code=303)
+    return RedirectResponse(f"/login?next={quote(destination, safe='/')}", status_code=303)
 
 def _safe_resume_destination(value: str | None) -> str:
-    allowed = {"/", "/dashboard", "/profile", "/full-simulation", "/full-simulation/start", "/individual-practice"}
+    allowed = {"/dashboard", "/profile", "/full-simulation", "/full-simulation/start", "/individual-practice"}
     if value in allowed or value in {"/individual-practice?launch=online_assessment", "/individual-practice?launch=technical", "/individual-practice?launch=hr"}:
         return value
-    return "/profile"
+    return "/dashboard"
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, next: str | None = None):
+def login_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+    if get_current_user(request, db):
+        return RedirectResponse("/dashboard", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"request": request, "next_url": _safe_resume_destination(next)})
 
 @app.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/profile"), db: Session = Depends(get_db)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/dashboard"), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == username).first()
 
     if not user:
@@ -1867,7 +1872,27 @@ def dashboard_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user:
         return RedirectResponse("/login?next=/dashboard", status_code=303)
-    return templates.TemplateResponse(request, "dashboard.html", _practice_context(request, db))
+    import json
+    profile_row = get_or_create_user_profile(db, user)
+    profile_data = {"interview_skills": {}, "communication_skills": {}, "technical_skills": {}, "overall_score": 0, "interview_count": 0}
+    if profile_row.profile_json:
+        try:
+            stored = json.loads(profile_row.profile_json)
+            if isinstance(stored, dict):
+                profile_data.update(stored)
+        except (TypeError, ValueError):
+            pass
+    interviews = db.query(Interview).filter(Interview.user_id == user.id).order_by(Interview.date.asc()).all()
+    profile_data = _enrich_profile_from_interviews(profile_data, interviews)
+    timeline_by_role = {}
+    for interview in interviews:
+        role = (interview.role or "Other").strip().lower()
+        timeline_by_role.setdefault(role, []).append({"date": interview.date.strftime("%Y-%m-%d"), "score": interview.score or 0})
+    context = _practice_context(request, db)
+    if isinstance(context, RedirectResponse):
+        return context
+    context.update({"user_profile": profile_row, "dashboard": build_dashboard_analytics(profile_data, interviews), "timeline_by_role": timeline_by_role, "active_page": "dashboard"})
+    return templates.TemplateResponse(request, "dashboard.html", context)
 
 @app.get("/full-simulation", response_class=HTMLResponse)
 def full_simulation_page(request: Request, db: Session = Depends(get_db)):
@@ -4821,7 +4846,9 @@ def profile_page(request: Request, next: str | None = None, db: Session = Depend
 
     user = get_current_user(request, db)
     if not user:
-        return RedirectResponse("/login")
+        from urllib.parse import quote
+        destination = _safe_resume_destination(next)
+        return RedirectResponse(f"/login?next={quote(destination, safe='/')}", status_code=303)
 
     from models import Interview
     import json

@@ -16,6 +16,7 @@
     <h1 id="auth-title">Create your account</h1>
     <p class="auth-intro">Build confidence for every step ahead.</p>
     <form method="post" action="/signup">
+      <input type="hidden" name="next" value="{{ next_url or '/dashboard' }}">
       <label for="username">Username</label>
       <input id="username" type="text" name="username" placeholder="Choose a username" autocomplete="username" required>
       <label for="password">Password</label>
@@ -23,7 +24,7 @@
       <button type="submit" class="auth-submit">Create Account <span aria-hidden="true">→</span></button>
     </form>
     {% if message %}<p class="auth-message" role="alert">{{ message }}</p>{% endif %}
-    <p class="auth-switch">Already have an account? <a href="/login">Sign in</a></p>
+    <p class="auth-switch">Already have an account? <a href="/login?next={{ (next_url or '/dashboard')|urlencode }}">Sign in</a></p>
     <p class="auth-terms">A little practice can take you a long way.</p>
   </main>
   <script src="/static/auth.js" defer></script>
