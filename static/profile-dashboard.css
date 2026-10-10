@@ -18,6 +18,27 @@ body.intervista-app { margin:0; min-height:100vh; background:var(--canvas); colo
 @media (max-width:720px) { .intervista-sidebar { position:relative; width:100%; min-height:0; padding:16px; }.brand b,.sidebar-profile,.account-nav,.primary-nav .subnav,.nav-disabled { display:none; }.primary-nav { display:flex; gap:5px; margin-top:16px; overflow-x:auto; }.primary-nav a { min-height:40px; padding:0 11px; font-size:12px; white-space:nowrap; }.primary-nav a.is-active:before { display:none; }.primary-nav i { display:none; }.intervista-main { width:100%; margin:0; padding:28px 16px 40px; }.app-page-header { align-items:flex-start; flex-direction:column; margin-bottom:25px; }.app-page-header h1 { font-size:45px; }.app-panel { padding:23px 19px; border-radius:18px; }.profile-inputs,.mode-grid { grid-template-columns:1fr; }.span-two { grid-column:auto; }.snapshot-grid { grid-template-columns:1fr 1fr; }.panel-title-row { flex-direction:column; }.role-select { width:100%; justify-content:space-between; }.role-select select { width:70%; }.chart-wrap { height:260px; }.mode-card { min-height:0; }.mode-card>p { min-height:0; } }
 @media (max-width:520px) { .history-entry { align-items:flex-start; flex-direction:column; }.history-entry>div:last-child { width:100%; justify-content:space-between; } }
 
+/* Authenticated navigation refresh: shared labels and active page state. */
+.intervista-sidebar { width:254px; align-items:stretch; padding:26px 18px 22px; border-right:1px solid #252333; background:radial-gradient(ellipse at 30% 4%,rgba(113,75,204,.19),transparent 17rem),#100f18; color:#f5f3fc; }
+.intervista-sidebar .brand { width:auto; justify-content:flex-start; gap:11px; font-size:17px; letter-spacing:.075em; }
+.intervista-sidebar .brand-mark { width:36px; height:36px; border-radius:10px; background:linear-gradient(145deg,#a78bfa,#6d4ad4); color:#fff; font-size:22px; }
+.intervista-sidebar .brand > span:nth-child(2) { display:inline; }
+.intervista-sidebar .brand b { display:none; }
+.intervista-sidebar .sidebar-profile { display:flex; margin:29px 0 22px; padding:12px; border-color:#292638; border-radius:12px; background:rgba(255,255,255,.035); }
+.intervista-sidebar .initial { width:39px; height:39px; border-radius:11px; background:linear-gradient(145deg,#8c6ae6,#5638b0); font-size:16px; }
+.intervista-sidebar .sidebar-profile strong { font-size:13px; }.intervista-sidebar .sidebar-profile small { font-size:11px; }
+.intervista-sidebar .primary-nav { width:auto; gap:5px; margin-top:0; }
+.intervista-sidebar .primary-nav a,.intervista-sidebar .account-nav a { min-height:43px; justify-content:flex-start; gap:12px; padding:0 12px; border-radius:9px; color:#aaa6bb; font-size:13px; font-weight:550; }
+.intervista-sidebar .primary-nav i,.intervista-sidebar .account-nav i { width:20px; color:#9993ae; font-size:17px; }
+.intervista-sidebar .primary-nav a:hover,.intervista-sidebar .primary-nav a.is-active { background:linear-gradient(100deg,rgba(133,91,220,.25),rgba(111,73,188,.11)); color:#fff; }
+.intervista-sidebar .primary-nav a.is-active:before { left:-18px; height:26px; background:#9b78f1; }
+.intervista-sidebar .primary-nav .subnav { display:none; }
+.intervista-sidebar .account-nav { width:auto; gap:5px; margin-top:auto; padding-top:13px; border-color:#302c3b; }
+.intervista-sidebar .account-nav a { color:#aaa6bb; }.intervista-sidebar .account-nav .signout { color:#c3a7b8; }
+.intervista-main { width:calc(100% - 254px); margin-left:254px; }
+@media (max-width:1050px) { .intervista-sidebar { width:230px; }.intervista-main { width:calc(100% - 230px); margin-left:230px; } }
+@media (max-width:720px) { .intervista-sidebar { width:100%; align-items:stretch; padding:14px 16px 10px; }.intervista-sidebar .brand { justify-content:flex-start; }.intervista-sidebar .brand-mark { font-size:22px; }.intervista-sidebar .sidebar-profile,.intervista-sidebar .account-nav { display:none; }.intervista-sidebar .primary-nav { margin-top:12px; }.intervista-sidebar .primary-nav a { min-height:39px; justify-content:flex-start; padding:0 10px; font-size:11px; }.intervista-sidebar .primary-nav i { display:inline; }.intervista-main { width:100%; margin:0; } }
+
 /* Reference refresh: restrained editorial palette, with existing app behavior intact. */
 :root { --ink:#18212d; --copy:#718096; --canvas:#f8f8f7; --panel:#fff; --line:#e4e5e7; --violet:#f0643a; --violet-soft:#fff1eb; --sidebar:#fff; --sidebar-line:#ececee; }
 body.intervista-app { background:radial-gradient(ellipse at 88% 90%,rgba(242,112,75,.12),transparent 28rem),#f8f8f7; color:#18212d; }
