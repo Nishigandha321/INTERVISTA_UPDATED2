@@ -1,182 +1,54 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/intervista-ui.css">
-
-<title>Intervista AI</title>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090810"><link rel="stylesheet" href="/static/landing.css">
+  <title>INTERVISTA — Prepare better</title>
 </head>
-
-<body>
-
-<!-- ================= NAVBAR ================= -->
-
-<nav class="navbar">
-  <div class="nav-container">
-
-    <h2 class="logo">
-      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img" />
-    INTERVISTA 
-    </h2>
-
-    <div class="nav-links">
-      <a href="/">Home</a>
+<body class="landing-page">
+  <nav class="landing-nav" aria-label="Main navigation">
+    <a class="landing-brand" href="/" aria-label="INTERVISTA home"><img src="/static/new_logo.png" alt=""><span>INTERVISTA</span></a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="Open navigation"><span></span><span></span></button>
+    <div class="nav-links" id="main-nav">
       <a href="#features">Features</a>
-      <!--<a href="#flow">How it Works</a>-->
-      <a href="#contact">Contact</a>
-
-      {% if not username %}
-      <a href="/signup" class="btn small-btn">Sign Up</a>
-      <a href="/login" class="btn outline-btn">Login</a>
-      {% endif %}
-    </div>
-
-    {% if username %}
-    <div class="user-menu">
-      <button class="user-avatar" id="userAvatar" type="button" aria-label="Open account menu">
-        <span class="avatar-circle">{{ username[:1] | upper }}</span>
-      </button>
-      <div class="user-dropdown" id="userDropdown">
-        <div class="user-dropdown-header">
-          <div class="user-name">{{ username }}</div>
+      <div class="nav-dropdown"><button type="button" aria-expanded="false" aria-haspopup="true">Uses <span aria-hidden="true">▾</span></button>
+        <div class="nav-menu" role="menu">
+          <a role="menuitem" href="/index#individual-practice">Online Assessment</a><a role="menuitem" href="/index#individual-practice">Technical Interview</a><a role="menuitem" href="/index#individual-practice">HR Interview</a><a role="menuitem" href="/coding">Coding Practice</a><a role="menuitem" href="/gd">Group Discussion</a>
         </div>
-        <a href="/profile" class="dropdown-item">View Dashboard</a>
-        <a href="/logout" class="dropdown-item danger">Log Out</a>
       </div>
+      <a href="#workflow">Workflow</a><a href="mailto:support@intervista.ai">Contact</a>
     </div>
-    {% endif %}
-
-  </div>
-</nav>
-
-
-<!-- ================= HERO ================= -->
-
-<header class="hero">
-
-  <div class="hero-content">
-
-    <h1>
-      Master Your Skills <span>with AI</span>
-    </h1>
-
-    <p class="subtitle">
-     Upload your resume, practice AI-powered mock interviews, receive intelligent feedback through NLP and speech analysis,
-      and get focused recommendations to strengthen your weakest skills.
-    </p>
-
-    <div class="cta">
-      <a href="{% if username %}/profile{% else %}/signup{% endif %}" class="btn">Start your Journey →</a>
-      <!-- <a href="#flow" class="btn outline-btn">How It Works</a> -->
-    </div>
-
-  </div>
-
-  <!-- Stats -->
-
-  <div class="stats">
-
-    <div class="stat">
-      <h3>AI</h3>
-      <p>Adaptive Learning</p>
-    </div>
-
-    <div class="stat">
-      <h3>Real-Time</h3>
-      <p>Interview Feedback</p>
-    </div>
-
-    <div class="stat">
-      <h3>NLP</h3>
-      <p>Answer Evaluation</p>
-    </div>
-
-    <div class="stat">
-      <h3>Speech AI</h3>
-      <p>Communication Analysis</p>
-    </div>
-
-  </div>
-
-</header>
-
-
-
-<!-- ================= FEATURES ================= -->
-
-<section class="features" id="features">
-
-<h2>Platform Features</h2>
-
-<div class="feature-grid">
-
-<div class="feature-card">
-<h3>AI Generated Interview Questions</h3>
-<p>Generate technical, HR, and coding questions dynamically based on your resume and role.</p>
-</div>
-
-<div class="feature-card">
-<h3>Focused Recommendations</h3>
-<p>The system identifies skill gaps and highlights the right areas to practice next.</p>
-</div>
-
-<div class="feature-card">
-<h3>Live Mock Interviews</h3>
-<p>Practice real interview scenarios with voice and text responses.</p>
-</div>
-
-<div class="feature-card">
-<h3>Speech & Communication Analysis</h3>
-<p>Evaluate clarity, filler words, pauses, and response structure.</p>
-</div>
-
-<div class="feature-card">
-<h3>AI Feedback Reports</h3>
-<p>Get detailed insights about strengths, weaknesses, and improvement areas.</p>
-</div>
-
-<div class="feature-card">
-<h3>Resume Based Preparation</h3>
-<p>Questions are generated based on your projects, skills, and experience.</p>
-</div>
-
-</div>
-
-</section>
-
-
-<!-- ================= FOOTER ================= -->
-
-<footer class="contact" id="contact">
-
-<div class="container">
-
-<p>📧 Contact: <a href="mailto:support@intervista.ai">support@intervista.ai</a></p>
-
-<p>© 2026 <strong>Intervista AI</strong>. All Rights Reserved.</p>
-
-</div>
-
-</footer>
-
-{% if username %}
-<script>
-const avatar = document.getElementById("userAvatar");
-const dropdown = document.getElementById("userDropdown");
-
-if (avatar && dropdown) {
-  avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
-  window.addEventListener("click", (event) => {
-    if (!avatar.contains(event.target) && !dropdown.contains(event.target)) {
-      dropdown.classList.remove("show");
-    }
-  });
-}
-</script>
-{% endif %}
-
-</body>
-</html>
+    {% if username %}<div class="account-menu"><button class="user-avatar" type="button" aria-label="Open account menu" aria-expanded="false">{{ username[:1]|upper }}</button><div class="account-dropdown"><span>{{ username }}</span><a href="/profile">View Dashboard</a><a href="/logout">Logout</a></div></div>{% else %}<span class="nav-spacer" aria-hidden="true"></span>{% endif %}
+  </nav>
+  <main>
+    <header class="hero"><div class="hero-glow"></div><div class="hero-content">
+      <div class="ai-badge"><span></span> AI-POWERED PREPARATION</div>
+      <h1><span class="hero-static">Prepare Better.</span><span class="rotating-line" aria-live="polite"><span id="rotatingText">Perform Technical Interviews.</span></span><span class="hero-static">All-in-one platform.</span></h1>
+      <p class="hero-copy">Build confidence for every stage of your next opportunity with AI-powered interview practice, coding rounds, assessments and actionable feedback.</p>
+      <div class="hero-actions"><a class="button-primary" href="{% if username %}/profile{% else %}/signup{% endif %}">Start Your Journey <span>→</span></a><a class="button-secondary" href="#features">Explore Features</a></div>
+      <div class="hero-note">✧ &nbsp; Your next opportunity starts with preparation</div>
+    </div></header>
+    <section class="features-section" id="features"><div class="section-heading"><p class="eyebrow">BUILT FOR YOUR NEXT MOVE</p><h2>Preparation that <span>moves you forward.</span></h2><p>Tools to help you practise with purpose and understand where to improve.</p></div>
+      <div class="feature-grid informational-grid">
+        <article class="info-card"><span class="info-icon">✳</span><h3>AI-Generated Interview Questions</h3><p>Practise with interview questions tailored to your selected role and experience level.</p></article>
+        <article class="info-card"><span class="info-icon">⌕</span><h3>Resume-Based Preparation</h3><p>Use your uploaded resume as context for more relevant interview practice.</p></article>
+        <article class="info-card"><span class="info-icon">◎</span><h3>Focused Recommendations</h3><p>Review skill insights and areas to strengthen from your practice history.</p></article>
+        <article class="info-card"><span class="info-icon">♫</span><h3>Speech and Communication Analysis</h3><p>Get analysis of speech delivery and communication during interview practice.</p></article>
+        <article class="info-card"><span class="info-icon">✧</span><h3>AI Feedback Reports</h3><p>Review answer evaluations and reports after completing practice sessions.</p></article>
+        <article class="info-card"><span class="info-icon">↗</span><h3>Performance Tracking</h3><p>See your interview score trends and readiness snapshot in your dashboard.</p></article>
+      </div>
+    </section>
+    <section class="uses-section" id="uses"><div class="section-heading"><p class="eyebrow">PRACTISE YOUR WAY</p><h2>Explore the <span>practice modules.</span></h2><p>Choose a focused round and start building confidence.</p></div>
+      <div class="module-grid">
+        <article class="module-card"><div class="module-art art-assessment"><span class="art-window"><i></i><i></i><i></i><b>01</b><em></em><em></em><em></em></span><span class="art-orb">✓</span></div><div class="card-copy"><span class="card-kicker">01 / ASSESS</span><h3>Online Assessment</h3><p>Sharpen your aptitude and problem-solving skills with focused assessment practice.</p><a class="try-link" href="/index#individual-practice">Try It Out <span>→</span></a></div></article>
+        <article class="module-card"><div class="module-art art-technical"><span class="tech-bracket">&lt;/&gt;</span><span class="tech-line line-a"></span><span class="tech-line line-b"></span><span class="tech-line line-c"></span><span class="tech-spark">✦</span></div><div class="card-copy"><span class="card-kicker">02 / INTERVIEW</span><h3>Technical Interview</h3><p>Explain your thinking and build confidence with realistic technical interviews.</p><a class="try-link" href="/index#individual-practice">Try It Out <span>→</span></a></div></article>
+        <article class="module-card"><div class="module-art art-hr"><span class="hr-ring"><span>◉</span></span><span class="hr-bubble">Tell me about yourself</span><span class="hr-dot"></span></div><div class="card-copy"><span class="card-kicker">03 / CONNECT</span><h3>HR Interview</h3><p>Shape clear, thoughtful answers for the questions that reveal who you are.</p><a class="try-link" href="/index#individual-practice">Try It Out <span>→</span></a></div></article>
+        <article class="module-card"><div class="module-art art-coding"><span class="code-prompt">&gt;_</span><span class="code-row row-one"></span><span class="code-row row-two"></span><span class="code-row row-three"></span><span class="code-check">✓</span></div><div class="card-copy"><span class="card-kicker">04 / BUILD</span><h3>Coding Practice</h3><p>Solve hands-on coding challenges and strengthen the skills behind your solutions.</p><a class="try-link" href="/coding">Try It Out <span>→</span></a></div></article>
+        <article class="module-card"><div class="module-art art-group"><span class="person person-one">A</span><span class="person person-two">M</span><span class="person person-three">J</span><span class="group-wave"></span><span class="group-wave wave-two"></span></div><div class="card-copy"><span class="card-kicker">05 / COLLABORATE</span><h3>Group Discussion</h3><p>Practise sharing ideas, listening actively and making your voice count.</p><a class="try-link" href="/gd">Try It Out <span>→</span></a></div></article>
+      </div>
+    </section>
+    <section class="workflow-section" id="workflow"><p class="eyebrow">HOW INTERVISTA WORKS</p><h2>Your workflow, <span>coming soon.</span></h2><div class="workflow-placeholder" aria-label="Workflow content placeholder"><span>✦</span><p>Workflow details will be added here.</p><div><i></i><i></i><i></i></div></div></section>
+  </main>
+  <footer class="landing-footer"><a class="landing-brand" href="/"><img src="/static/new_logo.png" alt=""><span>INTERVISTA</span></a><a href="mailto:support@intervista.ai">Contact us <span>↗</span></a><small>© 2026 Intervista. All rights reserved.</small></footer>
+  <script src="/static/landing.js" defer></script>
+</body></html>
