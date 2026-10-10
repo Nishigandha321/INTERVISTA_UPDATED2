@@ -1778,7 +1778,7 @@ def signup(request: Request, username: str = Form(...), password: str = Form(...
     return RedirectResponse("/login", status_code=303)
 
 def _safe_resume_destination(value: str | None) -> str:
-    allowed = {"/", "/profile", "/full-simulation", "/full-simulation/start", "/individual-practice"}
+    allowed = {"/", "/dashboard", "/profile", "/full-simulation", "/full-simulation/start", "/individual-practice"}
     if value in allowed or value in {"/individual-practice?launch=online_assessment", "/individual-practice?launch=technical", "/individual-practice?launch=hr"}:
         return value
     return "/profile"
@@ -1861,6 +1861,13 @@ def _practice_context(request: Request, db: Session):
 @app.get("/index", response_class=HTMLResponse)
 def index(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/individual-practice", status_code=303)
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse("/login?next=/dashboard", status_code=303)
+    return templates.TemplateResponse(request, "dashboard.html", _practice_context(request, db))
 
 @app.get("/full-simulation", response_class=HTMLResponse)
 def full_simulation_page(request: Request, db: Session = Depends(get_db)):

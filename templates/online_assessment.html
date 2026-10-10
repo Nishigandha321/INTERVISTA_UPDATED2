@@ -52,32 +52,13 @@
     margin-bottom: 12px;
   }
 </style>
+  <link rel="stylesheet" href="/static/sidebar.css">
 </head>
-<body>
+<body class="intervista-app has-sidebar">
+{% include "_sidebar.html" %}
 
-<nav class="navbar">
-  <div class="nav-container">
-    <h2 class="logo">
-      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
-      INTERVISTA
-    </h2>
-    <div class="nav-links">
-      <a href="/">Home</a>
-    </div>
-    <div class="user-menu">
-      <button class="user-avatar" id="userAvatar">
-        <span class="avatar-circle">{{ username[:1] | upper }}</span>
-      </button>
-      <div class="user-dropdown" id="userDropdown">
-        <div class="user-dropdown-header">
-          <div class="user-name">{{ username }}</div>
-        </div>
-        <a href="/profile" class="dropdown-item">View Dashboard</a>
-        <a href="/logout" class="dropdown-item danger">Log Out</a>
-      </div>
-    </div>
-  </div>
-</nav>
+
+
 
 <header class="page-header">
   <h1>Online Assessment</h1>
@@ -264,5 +245,6 @@
 })();
 </script>
 
+<script src="/static/sidebar.js" defer></script>
 </body>
 </html>

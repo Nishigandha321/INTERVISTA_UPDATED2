@@ -6,49 +6,16 @@
 <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/intervista-ui.css?v=interview-text-answer-1">
 <title>AI Voice Interview</title>
+  <link rel="stylesheet" href="/static/sidebar.css">
 </head>
 
-<body class="interview-studio">
+<body class="intervista-app interview-studio has-sidebar">
+{% include "_sidebar.html" %}
 
-     <nav class="navbar">
-  <div class="nav-container">
-
-    <h2 class="logo">
-      <img src="/static/new_logo.png" alt="Intervista AI logo" class="logo-img">
-      INTERVISTA
-    </h2>
-
-   <div class="nav-links">
-  <a href="/">Home</a>
-  <a href="/#features">Features</a>
-  <!--<a href="/#flow">How it Works</a> -->
-  <a href="/#contact">Contact</a>
-</div>
-
-      <!-- User menu -->
-      <div class="user-menu">
-        <button class="user-avatar" id="userAvatar">
-          <span class="avatar-circle">{{ username[:1] | upper }}</span>
-        </button>
-
-        <div class="user-dropdown" id="userDropdown">
-          <div class="user-dropdown-header">
-            <div class="user-name">{{ username }}</div>
-          </div>
-
-          <a href="/profile" class="dropdown-item">View Dashboard</a>
-          <a href="/logout" class="dropdown-item danger">Log Out</a>
-        </div>
-      </div>
-
-    </div>
-  </div>
-</nav>
 
 <header class="page-header">
 <h1>Technical Interview</h1>
 </header>
-
 
 <main>
 
@@ -63,20 +30,16 @@
 
 </section>
 
-
-
 <section id="interview-phase" class="card" style="display:none;">
 
 <div id="interviewer-bubble" class="interviewer-bubble">
 <p id="current-question"></p>
 </div>
 
-
 <div id="coding-timer" style="display:none;margin-top:10px;">
 <span>Thinking time: </span>
 <b id="timer-value">120</b> seconds
 </div>
-
 
 <div id="voice-status" class="voice-status">
 <div class="voice-ring" id="voice-ring"></div>
@@ -97,8 +60,6 @@
 
 </section>
 
-
-
 <section id="evaluating-phase" class="card" style="display:none;">
 
 <h2>Interview Complete</h2>
@@ -111,8 +72,6 @@
 </section>
 
 </main>
-
-
 
 <script>
 (function(){
@@ -319,5 +278,6 @@
 })();
 </script>
 
+<script src="/static/sidebar.js" defer></script>
 </body>
 </html>
