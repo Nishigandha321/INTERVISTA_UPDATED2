@@ -1,27 +1,31 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/styles.css" />
-  <link rel="stylesheet" href="/static/intervista-ui.css" />
-  <title>Sign up · Intervista</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090711">
+  <link rel="stylesheet" href="/static/auth.css">
+  <title>Sign Up · Intervista</title>
 </head>
 <body class="auth-page">
-  <a class="auth-brand" href="/" aria-label="Intervista home"><img src="/static/new_logo.png" alt="Intervista"><span>INTERVISTA</span></a>
-  <div class="card form-card auth-card" aria-label="Create an Intervista account">
-    <h1>Create your account</h1>
+  <div class="space-scene" aria-hidden="true"><span class="planet"></span><span class="planet-glow"></span></div>
+  <a class="auth-brand" href="/" aria-label="INTERVISTA home"><img src="/static/new_logo.png" alt=""><span>INTERVISTA</span></a>
+  <main class="auth-card" aria-labelledby="auth-title">
+    <div class="auth-mark" aria-hidden="true">✦</div>
+    <p class="auth-eyebrow">YOUR NEXT CHAPTER</p>
+    <h1 id="auth-title">Create your account</h1>
+    <p class="auth-intro">Build confidence for every step ahead.</p>
     <form method="post" action="/signup">
-      <label>Username</label>
-      <input type="text" name="username" placeholder="Choose a username" required>
-      <br>
-      <label>Password</label>
-      <input type="password" name="password" placeholder="Create a password" required>
-      <br>
-      <button type="submit" class="btn">Sign Up</button>
+      <label for="username">Username</label>
+      <input id="username" type="text" name="username" placeholder="Choose a username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <div class="password-wrap"><input id="password" type="password" name="password" placeholder="Create a password" autocomplete="new-password" required><button class="password-toggle" type="button" aria-controls="password" aria-pressed="false">Show</button></div>
+      <button type="submit" class="auth-submit">Create Account <span aria-hidden="true">→</span></button>
     </form>
-    <p style="color: var(--primary-color);">{{message}}</p>
-    <p>Already have an account? <a href="/login">Sign in</a></p>
-  </div>
+    {% if message %}<p class="auth-message" role="alert">{{ message }}</p>{% endif %}
+    <p class="auth-switch">Already have an account? <a href="/login">Sign in</a></p>
+    <p class="auth-terms">A little practice can take you a long way.</p>
+  </main>
+  <script src="/static/auth.js" defer></script>
 </body>
 </html>
