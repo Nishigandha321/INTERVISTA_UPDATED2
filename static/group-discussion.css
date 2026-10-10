@@ -75,3 +75,17 @@
 .gd-report-footer>span{color:var(--gd-muted);font-size:.75rem}
 @media(max-width:760px){.gd-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.gd-report-columns{grid-template-columns:1fr}.gd-report-hero{align-items:flex-start}.gd-score-orbit{width:95px;height:95px}.gd-score-orbit strong{font-size:2rem}}
 @media(max-width:520px){.gd-metric-grid{grid-template-columns:1fr 1fr;gap:8px}.gd-metric{padding:14px 11px;min-height:120px}.gd-metric>span{font-size:.67rem}.gd-report-footer{align-items:flex-start;flex-direction:column}.gd-report-footer .primary-button{width:100%}.gd-score-orbit{width:80px;height:80px}.gd-score-orbit strong{font-size:1.6rem}.gd-complete .secondary-button{margin:10px 0 0}}
+
+/* Polished vector persona avatars. */
+.gd-avatar { --avatar-accent:#a78bfa; display:grid; width:62px; height:62px; place-items:center; overflow:visible; border:0; border-radius:0; background:none; box-shadow:none; color:var(--avatar-accent); filter:none!important; }
+.gd-avatar:before { content:none; }
+.gd-avatar svg { display:block; width:62px; height:62px; overflow:visible; filter:drop-shadow(0 4px 9px rgba(0,0,0,.28)); }
+.gd-avatar .avatar-halo { fill:rgba(167,139,250,.14); stroke:rgba(167,139,250,.45); stroke-width:1; }
+.gd-avatar .avatar-shoulders { fill:rgba(116,82,166,.92); stroke:rgba(205,174,255,.38); stroke-width:1; }
+.gd-avatar .avatar-hair { fill:#393149; stroke:#776592; stroke-width:1; stroke-linejoin:round; }
+.gd-avatar .avatar-face { fill:#e6c4d1; stroke:#f3dbea; stroke-width:.8; }
+.gd-avatar .avatar-line { fill:none; stroke:#59445f; stroke-width:1.55; stroke-linecap:round; stroke-linejoin:round; }
+.gd-avatar .avatar-accent { fill:none; stroke:var(--avatar-accent); stroke-width:1.6; stroke-linecap:round; opacity:.95; }
+.gd-persona-contrarian .gd-avatar { --avatar-accent:#ee9d76; }
+.gd-persona-collaborative .gd-avatar { --avatar-accent:#7dd7c3; }
+.gd-persona-assertive .gd-avatar { --avatar-accent:#8eaaff; }
