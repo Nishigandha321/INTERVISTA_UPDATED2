@@ -1757,9 +1757,7 @@ def update_skill_profile(db: Session, user_id: int, skill_data: dict):
 def home(request: Request, db: Session = Depends(get_db)):
     """Render the public landing page or send an authenticated user to Dashboard."""
     user = get_current_user(request, db)
-    if user:
-        return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse(request, "home.html", {"request": request, "username": None})
+    return templates.TemplateResponse(request, "home.html", {"request": request, "username": user.username if user else None})
 
 @app.get("/signup", response_class=HTMLResponse)
 def signup_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):

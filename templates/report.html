@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Interview Performance Report</title>
-<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/report.css">
 <link rel="stylesheet" href="/static/intervista-ui.css">
 <style>
@@ -135,6 +136,8 @@
 </style>
 
 <link rel="stylesheet" href="/static/sidebar.css">
+  <link id="intervista-day-theme" rel="stylesheet" href="/static/light-theme.css?v=lavender-4">
+  <link rel="stylesheet" href="/static/night-theme.css?v=1">
 </head>
 
 <body class="iv-legacy-page">
@@ -517,11 +520,13 @@
 <script>
 const avatar   = document.getElementById("userAvatar");
 const dropdown = document.getElementById("userDropdown");
-avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
-window.addEventListener("click", (e) => {
-  if (!avatar.contains(e.target) && !dropdown.contains(e.target))
-    dropdown.classList.remove("show");
-});
+if (avatar && dropdown) {
+  avatar.addEventListener("click", () => dropdown.classList.toggle("show"));
+  window.addEventListener("click", (e) => {
+    if (!avatar.contains(e.target) && !dropdown.contains(e.target))
+      dropdown.classList.remove("show");
+  });
+}
 </script>
 </body>
 </html>

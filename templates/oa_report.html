@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/intervista-ui.css">
 <title>Online Assessment Report</title>
 <style>
@@ -52,8 +53,10 @@
 </style>
 
 <link rel="stylesheet" href="/static/sidebar.css">
+  <link id="intervista-day-theme" rel="stylesheet" href="/static/light-theme.css?v=lavender-4">
+  <link rel="stylesheet" href="/static/night-theme.css?v=1">
 </head>
-<body class="iv-legacy-page">
+<body class="iv-legacy-page oa-report-page">
 
 {% set active_page = 'individual_practice' %}{% include '_sidebar.html' %}
 

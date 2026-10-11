@@ -1,0 +1,46 @@
+/* Interview History: scannable dark-space archive, scoped to this page. */
+body.intervista-app.history-page{min-height:100vh;background:radial-gradient(ellipse at 83% 4%,rgba(115,79,173,.12),transparent 34rem),#090810;color:#f3eff9;font-family:'DM Sans',Inter,ui-sans-serif,system-ui,sans-serif}
+body.intervista-app.history-page .intervista-main{width:calc(100% - var(--iv-sidebar-width));max-width:none;min-height:100vh;margin-left:var(--iv-sidebar-width);padding:42px clamp(22px,4vw,62px) 64px}
+body.intervista-app.history-page .app-page-header{max-width:1180px;align-items:flex-start;margin:0 auto 27px}
+body.intervista-app.history-page .eyebrow{margin-bottom:10px;color:#b69be9;font-size:10px;letter-spacing:.17em}
+body.intervista-app.history-page .app-page-header h1{color:#f7f4fb;font:650 clamp(30px,3.2vw,43px)/1.15 Manrope,Inter,sans-serif;letter-spacing:-.045em}
+body.intervista-app.history-page .lede{margin-top:10px;color:#a39caf;font-size:14px;line-height:1.65}
+body.intervista-app.history-page .app-page-header>.primary-button{min-height:40px;padding:0 15px;border:1px solid rgba(211,190,244,.2);border-radius:9px;background:linear-gradient(110deg,#8d68c7,#7353aa);box-shadow:0 7px 18px rgba(87,59,132,.2);font:650 12px 'DM Sans',Inter,sans-serif}
+body.intervista-app.history-page .history-panel{max-width:1180px;margin:0 auto;padding:24px;border:1px solid rgba(223,209,246,.12);border-radius:15px;background:linear-gradient(145deg,rgba(23,21,31,.96),rgba(15,14,21,.96));box-shadow:0 14px 38px rgba(0,0,0,.18)}
+body.intervista-app.history-page .history-panel>.panel-title{margin-bottom:19px}
+body.intervista-app.history-page .history-panel>.panel-title h2{color:#f1edf7;font:650 17px Manrope,Inter,sans-serif}
+body.intervista-app.history-page .history-panel>.panel-title p{margin-top:6px;color:#9892a4;font-size:12px;line-height:1.6}
+body.intervista-app.history-page .history-category{overflow:hidden;border:1px solid rgba(223,209,246,.11);border-radius:12px;background:rgba(8,7,13,.34);box-shadow:none}
+body.intervista-app.history-page .history-category+.history-category{margin-top:11px}
+body.intervista-app.history-page .history-category>summary{display:flex;min-height:64px;align-items:center;gap:12px;padding:11px 16px;color:#eae5f1;font-size:14px;cursor:pointer;list-style:none}
+body.intervista-app.history-page .history-category>summary::-webkit-details-marker{display:none}
+body.intervista-app.history-page .history-category>summary::after{width:8px;height:8px;flex:0 0 8px;margin-left:auto;border-right:1.5px solid #bda2e5;border-bottom:1.5px solid #bda2e5;content:"";transform:rotate(-45deg);transition:transform .18s ease}
+body.intervista-app.history-page .history-category[open]>summary::after{transform:rotate(45deg)}
+body.intervista-app.history-page .history-category>summary:hover{background:rgba(255,255,255,.025)}
+body.intervista-app.history-page .history-category[open]>summary{border-bottom:1px solid rgba(223,209,246,.1)}
+body.intervista-app.history-page .history-category>summary:focus-visible{outline:2px solid #bea0ef;outline-offset:-3px}
+body.intervista-app.history-page .history-category-icon{display:grid;width:36px;height:36px;flex:0 0 36px;place-items:center;border:1px solid rgba(185,151,239,.14);border-radius:10px;background:rgba(147,111,207,.12);color:#cdb4f1;font-size:14px}
+body.intervista-app.history-page .history-category-heading{color:#eee9f6;font-size:14px;font-weight:650}
+body.intervista-app.history-page .history-category .history-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px;margin:10px 11px;padding:14px 15px;border:1px solid rgba(223,209,246,.1);border-radius:10px;background:rgba(255,255,255,.025);transition:border-color .18s ease,background .18s ease,transform .18s ease}
+body.intervista-app.history-page .history-category .history-entry:last-child{margin-bottom:11px}
+body.intervista-app.history-page .history-category .history-entry:hover{transform:translateY(-1px);border-color:rgba(185,151,239,.25);background:rgba(151,116,216,.06);box-shadow:none}
+body.intervista-app.history-page .history-entry>div:first-child{min-width:0}
+body.intervista-app.history-page .history-entry .history-date{margin:0;color:#968fa2;font-size:11px;letter-spacing:.04em}
+body.intervista-app.history-page .history-entry h4{margin:5px 0 4px;color:#f2edf8;font:650 14px Manrope,Inter,sans-serif;letter-spacing:-.015em}
+body.intervista-app.history-page .history-entry>div:first-child>span{display:block;color:#aaa4b4;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+body.intervista-app.history-page .history-entry>div:last-child{display:flex;align-items:center;gap:13px}
+body.intervista-app.history-page .history-entry>div:last-child>strong{color:#d1b8f4;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+body.intervista-app.history-page .history-entry .primary-button{min-height:35px;padding:0 12px;border:1px solid rgba(193,163,238,.18);border-radius:8px;background:rgba(145,106,202,.14);box-shadow:none;color:#ddcbf7;font:600 11px 'DM Sans',Inter,sans-serif}
+body.intervista-app.history-page .history-entry .primary-button:hover{border-color:rgba(193,163,238,.36);background:rgba(145,106,202,.24)}
+body.intervista-app.history-page .history-category .empty-copy{margin:11px;padding:16px;border:1px dashed rgba(223,209,246,.15);border-radius:9px;background:rgba(255,255,255,.02);color:#a39caf;font-size:12px;line-height:1.6}
+body.intervista-app.history-page :where(a,button,summary):focus-visible{outline:2px solid rgba(190,161,240,.8);outline-offset:3px}
+@media(max-width:1050px){body.intervista-app.history-page .intervista-main{width:calc(100% - var(--iv-sidebar-width));margin-left:var(--iv-sidebar-width);padding-right:25px;padding-left:25px}}
+@media(max-width:760px){
+ body.intervista-app.history-page .intervista-main{width:100%;margin:0;padding:27px 17px 42px}
+ body.intervista-app.history-page .app-page-header{flex-direction:column;gap:15px;margin-bottom:20px}
+ body.intervista-app.history-page .history-panel{padding:17px}
+ body.intervista-app.history-page .history-category .history-entry{grid-template-columns:minmax(0,1fr);gap:12px}
+ body.intervista-app.history-page .history-entry>div:last-child{justify-content:space-between}
+}
+@media(max-width:420px){body.intervista-app.history-page .intervista-main{padding-right:12px;padding-left:12px}body.intervista-app.history-page .history-panel{padding:12px}body.intervista-app.history-page .history-entry>div:last-child{gap:8px}}
+@media(prefers-reduced-motion:reduce){body.intervista-app.history-page *{transition-duration:.01ms!important}}

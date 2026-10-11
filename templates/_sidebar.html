@@ -1,19 +1,24 @@
 {% set _path = request.url.path %}{% if active_page is not defined %}{% set active_page = 'dashboard' if _path == '/dashboard' else 'full_simulation' if _path.startswith('/full-simulation') else 'individual_practice' if _path in ['/individual-practice', '/index', '/interview/start', '/interview/continue', '/oa/report', '/placement-report', '/report'] else 'coding' if _path.startswith('/coding') else 'gd' if _path.startswith('/gd') else 'history' if _path == '/interview-history' else 'profile' if _path == '/profile' else '' %}{% endif %}
 <aside class="iv-sidebar" aria-label="INTERVISTA workspace">
-  <a href="/dashboard" title="Dashboard" aria-label="Dashboard" class="iv-brand"><span class="iv-brand-mark" aria-hidden="true">✧</span><span>INTERVISTA</span></a>
-  <button class="iv-sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">&#8249;</button>
-  <div class="iv-user-card"><span class="iv-avatar">{{ (username or 'U')[:1]|upper }}</span><span class="iv-user-copy"><strong>{{ display_name|default(username, true) }}</strong><small>Candidate</small></span></div>
+  <div class="iv-sidebar-header">
+    <a href="/" title="INTERVISTA home" aria-label="INTERVISTA home" class="iv-brand"><span class="iv-brand-mark" aria-hidden="true">&#10023;</span><span>INTERVISTA</span></a>
+    <button class="iv-sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+  </div>
+  <div class="iv-sidebar-tools"><button class="iv-theme-toggle" type="button" aria-label="Switch to Night Mode" title="Switch to Night Mode" aria-pressed="false"><i class="fa-regular fa-moon" aria-hidden="true"></i><span>Night Mode</span></button></div>
+  <div class="iv-user-card" title="{{ display_name|default(username, true) }} (Candidate)"><span class="iv-avatar">{{ (username or 'U')[:1]|upper }}</span><span class="iv-user-copy"><strong>{{ display_name|default(username, true) }}</strong><small>Candidate</small></span></div>
+  <div class="iv-sidebar-navigation">
   <nav class="iv-primary-nav" aria-label="Workspace navigation">
-    <a href="/dashboard"{% if active_page == 'dashboard' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">⌂</i><span>Dashboard</span></a>
-    <a href="/full-simulation" title="Full Simulation" aria-label="Full Simulation"{% if active_page == 'full_simulation' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">&#9673;</i><span>Full Simulation</span></a>
-    <a href="/individual-practice" title="Individual Practice" aria-label="Individual Practice"{% if active_page == 'individual_practice' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">&#9672;</i><span>Individual Practice</span></a>
-    <a href="/coding" title="Coding Round" aria-label="Coding Round"{% if active_page == 'coding' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">⌘</i><span>Coding Round</span></a>
-    <a href="/gd" title="Group Discussion" aria-label="Group Discussion"{% if active_page == 'gd' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">◌</i><span>Group Discussion</span></a>
-    <a href="/interview-history" title="Interview History" aria-label="Interview History"{% if active_page == 'history' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">◷</i><span>Interview History</span></a>
+    <a href="/dashboard" title="Dashboard" aria-label="Dashboard"{% if active_page == 'dashboard' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-window-maximize" aria-hidden="true"></i><span>Dashboard</span></a>
+    <a href="/full-simulation" title="Full Simulation" aria-label="Full Simulation"{% if active_page == 'full_simulation' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-id-card" aria-hidden="true"></i><span>Full Simulation</span></a>
+    <a href="/individual-practice" title="Individual Practice" aria-label="Individual Practice"{% if active_page == 'individual_practice' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-rectangle-list" aria-hidden="true"></i><span>Individual Practice</span></a>
+    <a href="/coding" title="Coding Round" aria-label="Coding Round"{% if active_page == 'coding' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-file-code" aria-hidden="true"></i><span>Coding Round</span></a>
+    <a href="/gd" title="Group Discussion" aria-label="Group Discussion"{% if active_page == 'gd' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-comments" aria-hidden="true"></i><span>Group Discussion</span></a>
+    <a href="/interview-history" title="Interview History" aria-label="Interview History"{% if active_page == 'history' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-clock" aria-hidden="true"></i><span>Interview History</span></a>
   </nav>
   <nav class="iv-account-nav" aria-label="Account navigation">
-    <a href="/profile" title="Profile" aria-label="Profile"{% if active_page == 'profile' %} class="is-active" aria-current="page"{% endif %}><i aria-hidden="true">◯</i><span>Profile</span></a>
-    <a class="iv-logout" href="/logout" title="Logout" aria-label="Logout"><i aria-hidden="true">↪</i><span>Logout</span></a>
+    <a href="/profile" title="Profile" aria-label="Profile"{% if active_page == 'profile' %} class="is-active" aria-current="page"{% endif %}><i class="fa-regular fa-user" aria-hidden="true"></i><span>Profile</span></a>
+    <a class="iv-logout" href="/logout" title="Logout" aria-label="Logout"><i class="fa-regular fa-circle-right" aria-hidden="true"></i><span>Logout</span></a>
   </nav>
+  </div>
 </aside>
 <script src="/static/sidebar.js" defer></script>
