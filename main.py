@@ -598,7 +598,7 @@ def _init_interview_session_fields(
         return {
             "interview_mode": "individual_practice",
             "simulation_mode": "individual",
-            "interview_type": "technical",
+            "interview_type": round_id if round_id in {"technical", "hr"} else "technical",
             "current_round": round_id,
             "round_order": [round_id],
             "round_status": {round_id: "active"},

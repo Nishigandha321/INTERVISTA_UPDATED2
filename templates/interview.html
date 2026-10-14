@@ -18,7 +18,7 @@
      {% set active_page = 'individual_practice' %}{% include '_sidebar.html' %}
 
 <header class="page-header">
-<h1>Technical Interview</h1>
+<h1>{{ 'HR Interview' if interview_type == 'hr' else 'Technical Interview' }}</h1>
 </header>
 
 
